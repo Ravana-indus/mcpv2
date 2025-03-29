@@ -66,25 +66,6 @@ class ERPNextClient {
     return this.authenticated;
   }
 
-  // Method to authenticate using username and password
-  async login(username: string, password: string): Promise<void> {
-    try {
-      const response = await this.axiosInstance.post('/api/method/login', {
-        usr: username,
-        pwd: password
-      });
-      
-      if (response.data.message === 'Logged In') {
-        this.authenticated = true;
-      } else {
-        throw new Error("Login failed");
-      }
-    } catch (error: any) {
-      this.authenticated = false;
-      throw new Error(`Authentication failed: ${error?.message || 'Unknown error'}`);
-    }
-  }
-
   // Get a document by doctype and name
   async getDocument(doctype: string, name: string): Promise<any> {
     try {
@@ -283,7 +264,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   if (!erpnext.isAuthenticated()) {
     throw new McpError(
       ErrorCode.InvalidRequest,
-      "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+      "Not authenticated with ERPNext. Please configure API key authentication."
     );
   }
 
@@ -360,25 +341,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "ERPNext DocType (e.g., Customer, Item)"
             }
           },
-          required: ["doctype"]
-        }
-      },
-      {
-        name: "authenticate_erpnext",
-        description: "Authenticate with ERPNext using username and password",
-        inputSchema: {
-          type: "object",
-          properties: {
-            username: {
-              type: "string",
-              description: "ERPNext username"
-            },
-            password: {
-              type: "string",
-              description: "ERPNext password"
-            }
-          },
-          required: ["username", "password"]
+            required: ["doctype"]
         }
       },
       {
@@ -481,42 +444,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (request.params.name) {
-    case "authenticate_erpnext": {
-      const username = String(request.params.arguments?.username);
-      const password = String(request.params.arguments?.password);
-      
-      if (!username || !password) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Username and password are required"
-        );
-      }
-      
-      try {
-        await erpnext.login(username, password);
-        return {
-          content: [{
-            type: "text",
-            text: `Successfully authenticated with ERPNext as ${username}`
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text",
-            text: `Authentication failed: ${error?.message || 'Unknown error'}`
-          }],
-          isError: true
-        };
-      }
-    }
-    
     case "get_documents": {
       if (!erpnext.isAuthenticated()) {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -558,7 +491,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -598,7 +531,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -639,7 +572,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -679,7 +612,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -738,7 +671,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: "Not authenticated with ERPNext. Use the authenticate_erpnext tool first."
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
           }],
           isError: true
         };
@@ -763,7 +696,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
       
-      default:
+    default:
       throw new McpError(
         ErrorCode.MethodNotFound,
         `Unknown tool: ${request.params.name}`
