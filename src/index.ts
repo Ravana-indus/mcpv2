@@ -161,27 +161,48 @@ class ERPNextClient {
   // Get all available DocTypes
   async getAllDocTypes(): Promise<string[]> {
     try {
-      // Use the search_doctype API to get a list of all DocTypes
-      const response = await this.axiosInstance.get('/api/method/frappe.desk.search.search_doctype', {
+      // Use the standard REST API to fetch DocTypes
+      const response = await this.axiosInstance.get('/api/resource/DocType', {
         params: {
-          text: ''  // Empty text returns all DocTypes
+          fields: JSON.stringify(["name"]),
+          limit_page_length: 500 // Get more doctypes at once
         }
       });
       
-      if (response.data && response.data.message) {
-        return response.data.message.map((item: any) => item.value);
+      if (response.data && response.data.data) {
+        return response.data.data.map((item: any) => item.name);
       }
       
       return [];
     } catch (error: any) {
       console.error("Failed to get DocTypes:", error?.message || 'Unknown error');
       
-      // Fallback: Return a list of common DocTypes
-      return [
-        "Customer", "Supplier", "Item", "Sales Order", "Purchase Order",
-        "Sales Invoice", "Purchase Invoice", "Employee", "Lead", "Opportunity",
-        "Quotation", "Payment Entry", "Journal Entry", "Stock Entry"
-      ];
+      // Try an alternative approach if the first one fails
+      try {
+        // Try using the method API to get doctypes
+        const altResponse = await this.axiosInstance.get('/api/method/frappe.desk.search.search_link', {
+          params: {
+            doctype: 'DocType',
+            txt: '',
+            limit: 500
+          }
+        });
+        
+        if (altResponse.data && altResponse.data.results) {
+          return altResponse.data.results.map((item: any) => item.value);
+        }
+        
+        return [];
+      } catch (altError: any) {
+        console.error("Alternative DocType fetch failed:", altError?.message || 'Unknown error');
+        
+        // Fallback: Return a list of common DocTypes
+        return [
+          "Customer", "Supplier", "Item", "Sales Order", "Purchase Order",
+          "Sales Invoice", "Purchase Invoice", "Employee", "Lead", "Opportunity",
+          "Quotation", "Payment Entry", "Journal Entry", "Stock Entry"
+        ];
+      }
     }
   }
 }
@@ -206,25 +227,35 @@ const server = new Server(
   }
 );
 
-// Common ERPNext doctypes to expose as resources
-const commonDoctypes = [
-  "Customer",
-  "Supplier",
-  "Item",
-  "Sales Order",
-  "Purchase Order",
-  "Sales Invoice",
-  "Purchase Invoice",
-  "Employee"
-];
-
 /**
  * Handler for listing available ERPNext resources.
- * Each common doctype is exposed as a resource template.
+ * Exposes DocTypes list as a resource and common doctypes as individual resources.
  */
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  // List of common DocTypes to expose as individual resources
+  const commonDoctypes = [
+    "Customer",
+    "Supplier",
+    "Item",
+    "Sales Order",
+    "Purchase Order",
+    "Sales Invoice",
+    "Purchase Invoice",
+    "Employee"
+  ];
+
+  const resources = [
+    // Add a resource to get all doctypes
+    {
+      uri: "erpnext://DocTypes",
+      name: "All DocTypes",
+      mimeType: "application/json",
+      description: "List of all available DocTypes in the ERPNext instance"
+    }
+  ];
+
   return {
-    resources: []
+    resources
   };
 });
 
@@ -259,19 +290,32 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
   let result: any;
 
-  // Handle document access: erpnext://{doctype}/{name}
-  const documentMatch = uri.match(/^erpnext:\/\/([^\/]+)\/(.+)$/);
-  if (documentMatch) {
-    const doctype = decodeURIComponent(documentMatch[1]);
-    const name = decodeURIComponent(documentMatch[2]);
-    
+  // Handle special resource: erpnext://DocTypes (list of all doctypes)
+  if (uri === "erpnext://DocTypes") {
     try {
-      result = await erpnext.getDocument(doctype, name);
+      const doctypes = await erpnext.getAllDocTypes();
+      result = { doctypes };
     } catch (error: any) {
       throw new McpError(
-        ErrorCode.InvalidRequest,
-        `Failed to fetch ${doctype} ${name}: ${error?.message || 'Unknown error'}`
+        ErrorCode.InternalError,
+        `Failed to fetch DocTypes: ${error?.message || 'Unknown error'}`
       );
+    }
+  } else {
+    // Handle document access: erpnext://{doctype}/{name}
+    const documentMatch = uri.match(/^erpnext:\/\/([^\/]+)\/(.+)$/);
+    if (documentMatch) {
+      const doctype = decodeURIComponent(documentMatch[1]);
+      const name = decodeURIComponent(documentMatch[2]);
+      
+      try {
+        result = await erpnext.getDocument(doctype, name);
+      } catch (error: any) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Failed to fetch ${doctype} ${name}: ${error?.message || 'Unknown error'}`
+        );
+      }
     }
   }
 
