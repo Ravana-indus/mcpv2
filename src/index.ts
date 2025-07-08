@@ -8,6 +8,7 @@
  * - Querying lists of documents
  * - Creating and updating documents
  * - Running reports
+ * - Creating DocTypes and Child Tables
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -72,7 +73,7 @@ class ERPNextClient {
       const response = await this.axiosInstance.get(`/api/resource/${doctype}/${name}`);
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to get ${doctype} ${name}: ${error?.message || 'Unknown error'}`);
+      throw new Error(`Failed to get ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
 
@@ -96,7 +97,7 @@ class ERPNextClient {
       const response = await this.axiosInstance.get(`/api/resource/${doctype}`, { params });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to get ${doctype} list: ${error?.message || 'Unknown error'}`);
+      throw new Error(`Failed to get ${doctype} list: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
 
@@ -108,7 +109,7 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to create ${doctype}: ${error?.message || 'Unknown error'}`);
+      throw new Error(`Failed to create ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
 
@@ -120,7 +121,7 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to update ${doctype} ${name}: ${error?.message || 'Unknown error'}`);
+      throw new Error(`Failed to update ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
 
@@ -135,7 +136,7 @@ class ERPNextClient {
       });
       return response.data.message;
     } catch (error: any) {
-      throw new Error(`Failed to run report ${reportName}: ${error?.message || 'Unknown error'}`);
+      throw new Error(`Failed to run report ${reportName}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
 
@@ -187,6 +188,16 @@ class ERPNextClient {
     }
   }
 
+  // Get DocType metadata including fields
+  async getDocTypeMeta(doctype: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.get(`/api/resource/DocType/${doctype}`);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to get DocType metadata for ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
   // Create a new DocType
   async createDocType(doctypeDefinition: any): Promise<any> {
     try {
@@ -207,6 +218,51 @@ class ERPNextClient {
         fields: doctypeDefinition.fields || []
       };
 
+      // Add default fields if not provided
+      if (!doctype.fields || doctype.fields.length === 0) {
+        doctype.fields = [
+          {
+            fieldname: "naming_series",
+            label: "Naming Series",
+            fieldtype: "Select",
+            options: `${doctype.name.toUpperCase().replace(/\s+/g, '-')}-`,
+            reqd: 1,
+            default: `${doctype.name.toUpperCase().replace(/\s+/g, '-')}-`
+          }
+        ];
+      }
+
+      // If it's a child table, add required parent fields
+      if (doctype.is_table || doctype.is_child_table) {
+        const parentFields = [
+          {
+            fieldname: "parent",
+            label: "Parent",
+            fieldtype: "Data",
+            hidden: 1
+          },
+          {
+            fieldname: "parentfield",
+            label: "Parent Field",
+            fieldtype: "Data",
+            hidden: 1
+          },
+          {
+            fieldname: "parenttype",
+            label: "Parent Type",
+            fieldtype: "Data",
+            hidden: 1
+          }
+        ];
+        
+        // Add parent fields if they don't exist
+        for (const parentField of parentFields) {
+          if (!doctype.fields.find((f: any) => f.fieldname === parentField.fieldname)) {
+            doctype.fields.unshift(parentField);
+          }
+        }
+      }
+
       // Create the DocType using the REST API
       const response = await this.axiosInstance.post('/api/resource/DocType', {
         data: doctype
@@ -215,6 +271,72 @@ class ERPNextClient {
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create DocType: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a Child Table DocType specifically
+  async createChildTable(childTableDefinition: any): Promise<any> {
+    try {
+      // Ensure it's marked as a child table
+      const childTableDoc = {
+        ...childTableDefinition,
+        is_table: 1,
+        is_child_table: 1,
+        custom: 1,
+        module: childTableDefinition.module || "Custom"
+      };
+
+      return await this.createDocType(childTableDoc);
+    } catch (error: any) {
+      throw new Error(`Failed to create child table: ${error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Add a child table field to an existing DocType
+  async addChildTableToDocType(parentDoctype: string, childTableDoctype: string, fieldname: string, label?: string): Promise<any> {
+    try {
+      // Get the parent DocType
+      const parentDoc = await this.getDocTypeMeta(parentDoctype);
+      
+      // Add the child table field
+      const childTableField = {
+        fieldname: fieldname,
+        label: label || fieldname.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        fieldtype: "Table",
+        options: childTableDoctype,
+        reqd: 0
+      };
+
+      // Add to fields array
+      if (!parentDoc.fields) {
+        parentDoc.fields = [];
+      }
+      
+      parentDoc.fields.push(childTableField);
+
+      // Update the parent DocType
+      const response = await this.axiosInstance.put(`/api/resource/DocType/${parentDoctype}`, {
+        data: parentDoc
+      });
+
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to add child table to DocType: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Reload DocType after creation (to apply changes)
+  async reloadDocType(doctype: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post(`/api/method/frappe.core.doctype.doctype.doctype.reload_doc`, {
+        doctype: 'DocType',
+        docname: doctype
+      });
+      return response.data.message;
+    } catch (error: any) {
+      console.warn(`Failed to reload DocType ${doctype}: ${error?.message || 'Unknown error'}`);
+      // This is not critical, so we don't throw
+      return null;
     }
   }
 }
@@ -495,11 +617,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   },
                   fieldtype: {
                     type: "string",
-                    description: "Field type (e.g., Data, Text, Select, Link, etc.)"
+                    description: "Field type (e.g., Data, Text, Select, Link, Table, etc.)"
                   },
                   options: {
                     type: "string",
-                    description: "Field options (for Select, Link fields, etc.)"
+                    description: "Field options (for Select, Link, Table fields, etc.)"
                   },
                   reqd: {
                     type: "number",
@@ -512,6 +634,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   default: {
                     type: "string",
                     description: "Default value"
+                  },
+                  hidden: {
+                    type: "number",
+                    description: "Hidden field (1 for hidden, 0 for visible)"
                   }
                 },
                 required: ["fieldname", "label", "fieldtype"]
@@ -536,6 +662,102 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["name"]
+        }
+      },
+      {
+        name: "create_child_table",
+        description: "Create a new Child Table DocType in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Name of the new Child Table DocType"
+            },
+            module: {
+              type: "string",
+              description: "Module name (optional, defaults to 'Custom')"
+            },
+            fields: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  fieldname: {
+                    type: "string",
+                    description: "Field name"
+                  },
+                  label: {
+                    type: "string",
+                    description: "Field label"
+                  },
+                  fieldtype: {
+                    type: "string",
+                    description: "Field type (e.g., Data, Text, Select, Link, Currency, etc.)"
+                  },
+                  options: {
+                    type: "string",
+                    description: "Field options (for Select, Link fields, etc.)"
+                  },
+                  reqd: {
+                    type: "number",
+                    description: "Required field (1 for required, 0 for optional)"
+                  },
+                  in_list_view: {
+                    type: "number",
+                    description: "Show in list view (1 for yes, 0 for no)"
+                  },
+                  default: {
+                    type: "string",
+                    description: "Default value"
+                  }
+                },
+                required: ["fieldname", "label", "fieldtype"]
+              },
+              description: "Array of field definitions for the Child Table"
+            }
+          },
+          required: ["name"]
+        }
+      },
+      {
+        name: "add_child_table_to_doctype",
+        description: "Add a child table field to an existing DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            parent_doctype: {
+              type: "string",
+              description: "Name of the parent DocType to add the child table to"
+            },
+            child_table_doctype: {
+              type: "string",
+              description: "Name of the child table DocType"
+            },
+            fieldname: {
+              type: "string",
+              description: "Field name for the child table in the parent DocType"
+            },
+            label: {
+              type: "string",
+              description: "Label for the child table field (optional)"
+            }
+          },
+          required: ["parent_doctype", "child_table_doctype", "fieldname"]
+        }
+      },
+      {
+        name: "get_doctype_meta",
+        description: "Get detailed metadata for a specific DocType including fields definition",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "ERPNext DocType name"
+            }
+          },
+          required: ["doctype"]
         }
       }
     ]
@@ -853,6 +1075,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         
         const result = await erpnext.createDocType(doctypeDefinition);
+        
+        // Try to reload the DocType to apply changes
+        await erpnext.reloadDocType(result.name);
+        
         return {
           content: [{
             type: "text",
@@ -864,6 +1090,143 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{
             type: "text",
             text: `Failed to create DocType ${name}: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "create_child_table": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const name = String(request.params.arguments?.name);
+      const module = request.params.arguments?.module as string | undefined;
+      const fields = request.params.arguments?.fields as any[] | undefined;
+      
+      if (!name) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Child table name is required"
+        );
+      }
+      
+      try {
+        // Build the child table definition
+        const childTableDefinition: any = {
+          name: name,
+          module: module || "Custom",
+          fields: fields || []
+        };
+        
+        const result = await erpnext.createChildTable(childTableDefinition);
+        
+        // Try to reload the DocType to apply changes
+        await erpnext.reloadDocType(result.name);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Created Child Table: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to create child table ${name}: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "add_child_table_to_doctype": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const parentDoctype = String(request.params.arguments?.parent_doctype);
+      const childTableDoctype = String(request.params.arguments?.child_table_doctype);
+      const fieldname = String(request.params.arguments?.fieldname);
+      const label = request.params.arguments?.label as string | undefined;
+      
+      if (!parentDoctype || !childTableDoctype || !fieldname) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Parent doctype, child table doctype, and fieldname are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.addChildTableToDocType(parentDoctype, childTableDoctype, fieldname, label);
+        
+        // Try to reload the DocType to apply changes
+        await erpnext.reloadDocType(parentDoctype);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Added child table ${childTableDoctype} to ${parentDoctype} as field '${fieldname}'\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to add child table to DocType: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "get_doctype_meta": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const doctype = String(request.params.arguments?.doctype);
+      
+      if (!doctype) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Doctype is required"
+        );
+      }
+      
+      try {
+        const meta = await erpnext.getDocTypeMeta(doctype);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(meta, null, 2)
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to get DocType metadata for ${doctype}: ${error?.message || 'Unknown error'}`
           }],
           isError: true
         };
