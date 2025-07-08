@@ -23,6 +23,7 @@ import {
   ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
+import process from 'node:process';
 
 // ERPNext API client configuration
 class ERPNextClient {
@@ -530,6 +531,110 @@ class ERPNextClient {
       user,
       perm: permlevel
     });
+  }
+
+  // --- [ERPNextClient: Add more advanced methods] ---
+  // Validate DocType/Workflow/Script (basic: check required fields)
+  async validateDocType(def: any): Promise<any> {
+    if (!def.name || !def.fields || !Array.isArray(def.fields)) {
+      throw new Error('Invalid DocType: missing name or fields');
+    }
+    return { valid: true };
+  }
+  async validateWorkflow(def: any): Promise<any> {
+    if (!def.workflow_name || !def.document_type || !def.states || !def.transitions) {
+      throw new Error('Invalid Workflow: missing required fields');
+    }
+    return { valid: true };
+  }
+  async validateScript(def: any): Promise<any> {
+    if (!def.script) {
+      throw new Error('Invalid Script: missing script code');
+    }
+    return { valid: true };
+  }
+
+  // Preview script (dry-run, only syntax check here)
+  async previewScript(def: any): Promise<any> {
+    try {
+      // Only check for syntax errors (very basic, not real execution)
+      new Function(def.script);
+      return { valid: true, message: 'No syntax errors' };
+    } catch (e: any) {
+      return { valid: false, error: e.message };
+    }
+  }
+
+  // Versioning/history (if supported)
+  async getDocumentHistory(doctype: string, name: string): Promise<any> {
+    // Frappe keeps a Version DocType
+    return this.getDocList('Version', { ref_doctype: doctype, docname: name });
+  }
+  async rollbackDocument(doctype: string, name: string, version_id: string): Promise<any> {
+    // Not natively supported, but could fetch version and update
+    const version = await this.getDocument('Version', version_id);
+    if (version && version.data) {
+      return this.updateDocument(doctype, name, JSON.parse(version.data));
+    }
+    throw new Error('Version not found or invalid');
+  }
+
+  // Scaffolding (simulate, return structure)
+  async scaffoldApp(app_name: string): Promise<any> {
+    return { app_name, structure: ['modules/', 'public/', 'config/', 'hooks.py', 'README.md'] };
+  }
+  async scaffoldModule(module_name: string): Promise<any> {
+    return { module_name, structure: ['doctype/', 'dashboard/', 'workflow/', 'report/', 'page/'] };
+  }
+
+  // UI schema generation (basic)
+  async generateFormSchema(doctype: string): Promise<any> {
+    const meta = await this.getDocTypeMeta(doctype);
+    return { fields: meta.fields || [] };
+  }
+  async generateDashboardSchema(dashboard_name: string): Promise<any> {
+    const dashboard = await this.getDocument('Dashboard', dashboard_name);
+    return { charts: dashboard.charts || [] };
+  }
+
+  // Lint/test script (basic JS lint)
+  async lintScript(def: any): Promise<any> {
+    try {
+      new Function(def.script);
+      return { valid: true };
+    } catch (e: any) {
+      return { valid: false, error: e.message };
+    }
+  }
+  async testScript(def: any): Promise<any> {
+    // Only syntax check for now
+    return this.lintScript(def);
+  }
+
+  // Notifications/alerts
+  async createNotification(notificationDef: any): Promise<any> {
+    return this.createDocument('Notification', notificationDef);
+  }
+  async createScheduledJob(jobDef: any): Promise<any> {
+    return this.createDocument('Scheduled Job Type', jobDef);
+  }
+
+  // Documentation generation (basic)
+  async generateDoctypeDocs(doctype: string): Promise<any> {
+    const meta = await this.getDocTypeMeta(doctype);
+    return { doc: `# ${doctype}\n\nFields:\n${(meta.fields||[]).map((f: any)=>`- ${f.fieldname} (${f.fieldtype})`).join('\n')}` };
+  }
+  async generateWorkflowDocs(workflow_name: string): Promise<any> {
+    const workflow = await this.getDocument('Workflow', workflow_name);
+    return { doc: `# Workflow: ${workflow.workflow_name}\n\nStates:\n${(workflow.states||[]).map((s: any)=>`- ${s.state}`).join('\n')}` };
+  }
+
+  // Integrations (register/manage)
+  async registerIntegration(integrationDef: any): Promise<any> {
+    return this.createDocument('Integration Service', integrationDef);
+  }
+  async manageIntegration(name: string, data: any): Promise<any> {
+    return this.updateDocument('Integration Service', name, data);
   }
 }
 
@@ -1223,6 +1328,208 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["doctype", "name", "user", "permlevel"]
         }
+      },
+      {
+        name: "validate_doctype",
+        description: "Validate a DocType definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "DocType definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "validate_workflow",
+        description: "Validate a Workflow definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Workflow definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "validate_script",
+        description: "Validate a script definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "preview_script",
+        description: "Preview a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "get_document_history",
+        description: "Get version history for a document",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "rollback_document",
+        description: "Rollback a document to a previous version",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" },
+            version_id: { type: "string", description: "Version document ID" }
+          },
+          required: ["doctype", "name", "version_id"]
+        }
+      },
+      {
+        name: "scaffold_app",
+        description: "Scaffold a new custom app (returns structure)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            app_name: { type: "string", description: "App name" }
+          },
+          required: ["app_name"]
+        }
+      },
+      {
+        name: "scaffold_module",
+        description: "Scaffold a new module (returns structure)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module_name: { type: "string", description: "Module name" }
+          },
+          required: ["module_name"]
+        }
+      },
+      {
+        name: "generate_form_schema",
+        description: "Generate a form schema for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "generate_dashboard_schema",
+        description: "Generate a dashboard schema for a Dashboard",
+        inputSchema: {
+          type: "object",
+          properties: {
+            dashboard_name: { type: "string", description: "Dashboard name" }
+          },
+          required: ["dashboard_name"]
+        }
+      },
+      {
+        name: "lint_script",
+        description: "Lint a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "test_script",
+        description: "Test a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "create_notification",
+        description: "Create a notification/alert",
+        inputSchema: {
+          type: "object",
+          properties: {
+            notificationDef: { type: "object", description: "Notification definition" }
+          },
+          required: ["notificationDef"]
+        }
+      },
+      {
+        name: "create_scheduled_job",
+        description: "Create a scheduled job",
+        inputSchema: {
+          type: "object",
+          properties: {
+            jobDef: { type: "object", description: "Scheduled job definition" }
+          },
+          required: ["jobDef"]
+        }
+      },
+      {
+        name: "generate_doctype_docs",
+        description: "Generate documentation for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "generate_workflow_docs",
+        description: "Generate documentation for a Workflow",
+        inputSchema: {
+          type: "object",
+          properties: {
+            workflow_name: { type: "string", description: "Workflow name" }
+          },
+          required: ["workflow_name"]
+        }
+      },
+      {
+        name: "register_integration",
+        description: "Register a new integration service",
+        inputSchema: {
+          type: "object",
+          properties: {
+            integrationDef: { type: "object", description: "Integration definition" }
+          },
+          required: ["integrationDef"]
+        }
+      },
+      {
+        name: "manage_integration",
+        description: "Update/manage an integration service",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Integration Service name/ID" },
+            data: { type: "object", description: "Update data" }
+          },
+          required: ["name", "data"]
+        }
       }
     ]
   };
@@ -1231,7 +1538,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 /**
  * Handler for tool calls.
  */
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   switch (request.params.name) {
     case "get_documents": {
       if (!erpnext.isAuthenticated()) {
@@ -1958,6 +2265,120 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       } catch (error: any) {
         return { content: [{ type: "text", text: `Failed to share ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
       }
+    }
+    case "validate_doctype": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateDocType(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid DocType: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "validate_workflow": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateWorkflow(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid Workflow: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "validate_script": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateScript(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "preview_script": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.previewScript(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Script preview error: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "get_document_history": {
+      const { doctype, name } = request.params.arguments;
+      try {
+        const result = await erpnext.getDocumentHistory(doctype, name);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to get history: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "rollback_document": {
+      const { doctype, name, version_id } = request.params.arguments;
+      try {
+        const result = await erpnext.rollbackDocument(doctype, name, version_id);
+        return { content: [{ type: "text", text: `Rolled back ${doctype} ${name} to version ${version_id}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to rollback: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "scaffold_app": {
+      const { app_name } = request.params.arguments;
+      const result = await erpnext.scaffoldApp(app_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "scaffold_module": {
+      const { module_name } = request.params.arguments;
+      const result = await erpnext.scaffoldModule(module_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_form_schema": {
+      const { doctype } = request.params.arguments;
+      const result = await erpnext.generateFormSchema(doctype);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_dashboard_schema": {
+      const { dashboard_name } = request.params.arguments;
+      const result = await erpnext.generateDashboardSchema(dashboard_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "lint_script": {
+      const { def } = request.params.arguments;
+      const result = await erpnext.lintScript(def);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "test_script": {
+      const { def } = request.params.arguments;
+      const result = await erpnext.testScript(def);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "create_notification": {
+      const { notificationDef } = request.params.arguments;
+      const result = await erpnext.createNotification(notificationDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "create_scheduled_job": {
+      const { jobDef } = request.params.arguments;
+      const result = await erpnext.createScheduledJob(jobDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_doctype_docs": {
+      const { doctype } = request.params.arguments;
+      const result = await erpnext.generateDoctypeDocs(doctype);
+      return { content: [{ type: "text", text: result.doc }] };
+    }
+    case "generate_workflow_docs": {
+      const { workflow_name } = request.params.arguments;
+      const result = await erpnext.generateWorkflowDocs(workflow_name);
+      return { content: [{ type: "text", text: result.doc }] };
+    }
+    case "register_integration": {
+      const { integrationDef } = request.params.arguments;
+      const result = await erpnext.registerIntegration(integrationDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "manage_integration": {
+      const { name, data } = request.params.arguments;
+      const result = await erpnext.manageIntegration(name, data);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
       
     default:
