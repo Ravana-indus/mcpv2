@@ -18,10 +18,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
-    "axios": "^1.8.4"
+    "axios": "^1.8.4",
+    "express": "^5.1.0",
+    "json-rpc-2.0": "^1.7.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.24",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.19.1",
     "typescript": "^5.3.3"
   }
 }

@@ -186,6 +186,37 @@ class ERPNextClient {
       }
     }
   }
+
+  // Create a new DocType
+  async createDocType(doctypeDefinition: any): Promise<any> {
+    try {
+      // Prepare the DocType definition with required defaults
+      const doctype = {
+        doctype: "DocType",
+        ...doctypeDefinition,
+        // Set some required defaults if not provided
+        module: doctypeDefinition.module || "Custom",
+        custom: doctypeDefinition.custom !== undefined ? doctypeDefinition.custom : 1,
+        is_table: doctypeDefinition.is_table || 0,
+        is_tree: doctypeDefinition.is_tree || 0,
+        is_submittable: doctypeDefinition.is_submittable || 0,
+        is_child_table: doctypeDefinition.is_child_table || 0,
+        track_changes: doctypeDefinition.track_changes !== undefined ? doctypeDefinition.track_changes : 1,
+        allow_rename: doctypeDefinition.allow_rename !== undefined ? doctypeDefinition.allow_rename : 1,
+        // Ensure fields array exists
+        fields: doctypeDefinition.fields || []
+      };
+
+      // Create the DocType using the REST API
+      const response = await this.axiosInstance.post('/api/resource/DocType', {
+        data: doctype
+      });
+
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create DocType: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
 }
 
 // Cache for doctype metadata
@@ -433,6 +464,78 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["report_name"]
+        }
+      },
+      {
+        name: "create_doctype",
+        description: "Create a new DocType in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Name of the new DocType"
+            },
+            module: {
+              type: "string",
+              description: "Module name (optional, defaults to 'Custom')"
+            },
+            fields: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  fieldname: {
+                    type: "string",
+                    description: "Field name"
+                  },
+                  label: {
+                    type: "string",
+                    description: "Field label"
+                  },
+                  fieldtype: {
+                    type: "string",
+                    description: "Field type (e.g., Data, Text, Select, Link, etc.)"
+                  },
+                  options: {
+                    type: "string",
+                    description: "Field options (for Select, Link fields, etc.)"
+                  },
+                  reqd: {
+                    type: "number",
+                    description: "Required field (1 for required, 0 for optional)"
+                  },
+                  unique: {
+                    type: "number",
+                    description: "Unique field (1 for unique, 0 for non-unique)"
+                  },
+                  default: {
+                    type: "string",
+                    description: "Default value"
+                  }
+                },
+                required: ["fieldname", "label", "fieldtype"]
+              },
+              description: "Array of field definitions for the DocType"
+            },
+            is_submittable: {
+              type: "number",
+              description: "Whether documents can be submitted (1 for yes, 0 for no)"
+            },
+            is_table: {
+              type: "number",
+              description: "Whether this is a child table DocType (1 for yes, 0 for no)"
+            },
+            autoname: {
+              type: "string",
+              description: "Auto-naming rule (e.g., 'field:name', 'naming_series:', 'autoincrement')"
+            },
+            title_field: {
+              type: "string",
+              description: "Field to use as title"
+            }
+          },
+          required: ["name"]
         }
       }
     ]
@@ -690,6 +793,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{
             type: "text",
             text: `Failed to get DocTypes: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "create_doctype": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const name = String(request.params.arguments?.name);
+      const module = request.params.arguments?.module as string | undefined;
+      const fields = request.params.arguments?.fields as any[] | undefined;
+      const is_submittable = request.params.arguments?.is_submittable as number | undefined;
+      const is_table = request.params.arguments?.is_table as number | undefined;
+      const autoname = request.params.arguments?.autoname as string | undefined;
+      const title_field = request.params.arguments?.title_field as string | undefined;
+      
+      if (!name) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name is required"
+        );
+      }
+      
+      try {
+        // Build the DocType definition
+        const doctypeDefinition: any = {
+          name: name,
+          module: module
+        };
+        
+        if (fields && fields.length > 0) {
+          doctypeDefinition.fields = fields;
+        }
+        
+        if (is_submittable !== undefined) {
+          doctypeDefinition.is_submittable = is_submittable;
+        }
+        
+        if (is_table !== undefined) {
+          doctypeDefinition.is_table = is_table;
+        }
+        
+        if (autoname) {
+          doctypeDefinition.autoname = autoname;
+        }
+        
+        if (title_field) {
+          doctypeDefinition.title_field = title_field;
+        }
+        
+        const result = await erpnext.createDocType(doctypeDefinition);
+        return {
+          content: [{
+            type: "text",
+            text: `Created DocType: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to create DocType ${name}: ${error?.message || 'Unknown error'}`
           }],
           isError: true
         };
