@@ -439,6 +439,98 @@ class ERPNextClient {
       throw new Error(`Failed to create Web Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
+
+  // Delete a document
+  async deleteDocument(doctype: string, name: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.delete(`/api/resource/${doctype}/${name}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to delete ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Clone a document (fetch, remove unique fields, create new)
+  async cloneDocument(doctype: string, name: string, overrides: Record<string, any> = {}): Promise<any> {
+    const doc = await this.getDocument(doctype, name);
+    // Remove unique/ID fields
+    delete doc.name;
+    delete doc.creation;
+    delete doc.modified;
+    delete doc.owner;
+    delete doc.idx;
+    // Apply overrides
+    Object.assign(doc, overrides);
+    return this.createDocument(doctype, doc);
+  }
+
+  // Export documents (as JSON)
+  async exportDocuments(doctype: string, filters?: Record<string, any>): Promise<any> {
+    const docs = await this.getDocList(doctype, filters);
+    return JSON.stringify(docs, null, 2);
+  }
+
+  // Import documents (from JSON)
+  async importDocuments(doctype: string, docs: any[]): Promise<any[]> {
+    const results = [];
+    for (const doc of docs) {
+      results.push(await this.createDocument(doctype, doc));
+    }
+    return results;
+  }
+
+  // Bulk create
+  async bulkCreateDocuments(doctype: string, docs: any[]): Promise<any[]> {
+    const results = [];
+    for (const doc of docs) {
+      results.push(await this.createDocument(doctype, doc));
+    }
+    return results;
+  }
+
+  // Bulk update
+  async bulkUpdateDocuments(doctype: string, updates: {name: string, data: any}[]): Promise<any[]> {
+    const results = [];
+    for (const upd of updates) {
+      results.push(await this.updateDocument(doctype, upd.name, upd.data));
+    }
+    return results;
+  }
+
+  // Bulk delete
+  async bulkDeleteDocuments(doctype: string, names: string[]): Promise<any[]> {
+    const results = [];
+    for (const name of names) {
+      results.push(await this.deleteDocument(doctype, name));
+    }
+    return results;
+  }
+
+  // Search documents (advanced filtering)
+  async searchDocuments(doctype: string, query: Record<string, any>): Promise<any[]> {
+    // For now, use filters as query
+    return this.getDocList(doctype, query);
+  }
+
+  // Permissions (get/set/share)
+  async getPermissions(doctype: string): Promise<any> {
+    return this.getDocTypeMeta(doctype); // Permissions are part of meta
+  }
+  async setPermissions(doctype: string, perms: any): Promise<any> {
+    // Update DocType meta with new permissions
+    const meta = await this.getDocTypeMeta(doctype);
+    meta.permissions = perms;
+    return this.updateDocument('DocType', doctype, meta);
+  }
+  async shareDocument(doctype: string, name: string, user: string, permlevel: number): Promise<any> {
+    // Frappe has a Share DocType
+    return this.createDocument('DocShare', {
+      share_doctype: doctype,
+      share_name: name,
+      user,
+      perm: permlevel
+    });
+  }
 }
 
 // Cache for doctype metadata
@@ -996,6 +1088,140 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             published: { type: "number", description: "Published (1/0, optional)" }
           },
           required: ["title", "route", "content"]
+        }
+      },
+      {
+        name: "delete_document",
+        description: "Delete a document by doctype and name",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "clone_document",
+        description: "Clone a document (optionally override fields)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID to clone" },
+            overrides: { type: "object", description: "Fields to override (optional)" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "export_documents",
+        description: "Export documents as JSON",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            filters: { type: "object", description: "Filters (optional)" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "import_documents",
+        description: "Import documents from JSON",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            docs: { type: "array", items: { type: "object" }, description: "Array of documents" }
+          },
+          required: ["doctype", "docs"]
+        }
+      },
+      {
+        name: "bulk_create_documents",
+        description: "Bulk create documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            docs: { type: "array", items: { type: "object" }, description: "Array of documents" }
+          },
+          required: ["doctype", "docs"]
+        }
+      },
+      {
+        name: "bulk_update_documents",
+        description: "Bulk update documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            updates: { type: "array", items: { type: "object", properties: { name: { type: "string" }, data: { type: "object" } }, required: ["name", "data"] }, description: "Array of updates" }
+          },
+          required: ["doctype", "updates"]
+        }
+      },
+      {
+        name: "bulk_delete_documents",
+        description: "Bulk delete documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            names: { type: "array", items: { type: "string" }, description: "Array of document names/IDs" }
+          },
+          required: ["doctype", "names"]
+        }
+      },
+      {
+        name: "search_documents",
+        description: "Advanced search for documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            query: { type: "object", description: "Query object (field filters)" }
+          },
+          required: ["doctype", "query"]
+        }
+      },
+      {
+        name: "get_permissions",
+        description: "Get permissions for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "set_permissions",
+        description: "Set permissions for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            perms: { type: "array", items: { type: "object" }, description: "Permissions array" }
+          },
+          required: ["doctype", "perms"]
+        }
+      },
+      {
+        name: "share_document",
+        description: "Share a document with a user",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" },
+            user: { type: "string", description: "User email/ID" },
+            permlevel: { type: "number", description: "Permission level (1=read, 2=write, etc.)" }
+          },
+          required: ["doctype", "name", "user", "permlevel"]
         }
       }
     ]
@@ -1598,6 +1824,139 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: `Created Web Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
       } catch (error: any) {
         return { content: [{ type: "text", text: `Failed to create Web Page: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "delete_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name } = request.params.arguments;
+      try {
+        const result = await erpnext.deleteDocument(doctype, name);
+        return { content: [{ type: "text", text: `Deleted ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to delete ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "clone_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name, overrides } = request.params.arguments;
+      try {
+        const result = await erpnext.cloneDocument(doctype, name, overrides);
+        return { content: [{ type: "text", text: `Cloned ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to clone ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "export_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, filters } = request.params.arguments;
+      try {
+        const result = await erpnext.exportDocuments(doctype, filters);
+        return { content: [{ type: "text", text: result }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to export ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "import_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, docs } = request.params.arguments;
+      try {
+        const result = await erpnext.importDocuments(doctype, docs);
+        return { content: [{ type: "text", text: `Imported ${result.length} documents to ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to import to ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_create_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, docs } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkCreateDocuments(doctype, docs);
+        return { content: [{ type: "text", text: `Bulk created ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk create in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_update_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, updates } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkUpdateDocuments(doctype, updates);
+        return { content: [{ type: "text", text: `Bulk updated ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk update in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_delete_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, names } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkDeleteDocuments(doctype, names);
+        return { content: [{ type: "text", text: `Bulk deleted ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk delete in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "search_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, query } = request.params.arguments;
+      try {
+        const result = await erpnext.searchDocuments(doctype, query);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to search in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "get_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype } = request.params.arguments;
+      try {
+        const result = await erpnext.getPermissions(doctype);
+        return { content: [{ type: "text", text: JSON.stringify(result.permissions || result.perm || [], null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to get permissions for ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "set_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, perms } = request.params.arguments;
+      try {
+        const result = await erpnext.setPermissions(doctype, perms);
+        return { content: [{ type: "text", text: `Set permissions for ${doctype}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to set permissions for ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "share_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name, user, permlevel } = request.params.arguments;
+      try {
+        const result = await erpnext.shareDocument(doctype, name, user, permlevel);
+        return { content: [{ type: "text", text: `Shared ${doctype} ${name} with ${user} (permlevel ${permlevel})\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to share ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
       }
     }
       
