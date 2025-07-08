@@ -339,6 +339,106 @@ class ERPNextClient {
       return null;
     }
   }
+
+  // Create a new Module
+  async createModule(moduleDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Module Def', { data: moduleDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Module: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Dashboard
+  async createDashboard(dashboardDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Dashboard', { data: dashboardDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Dashboard: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Workflow
+  async createWorkflow(workflowDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Workflow', { data: workflowDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Workflow: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Server Script
+  async createServerScript(scriptDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Server Script', { data: scriptDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Server Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Client Script
+  async createClientScript(scriptDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Client Script', { data: scriptDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Client Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Webhook
+  async createWebhook(webhookDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Webhook', { data: webhookDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Webhook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Hook (Custom App Hook DocType, if available)
+  async createHook(hookDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Hook', { data: hookDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Hook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Report
+  async createReport(reportDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Report', { data: reportDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Report: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Chart
+  async createChart(chartDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Chart', { data: chartDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Chart: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Web Page
+  async createWebPage(webPageDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Web Page', { data: webPageDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Web Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
 }
 
 // Cache for doctype metadata
@@ -758,6 +858,144 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["doctype"]
+        }
+      },
+      {
+        name: "create_module",
+        description: "Create a new Module in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module_name: { type: "string", description: "Name of the module" },
+            app_name: { type: "string", description: "App name (optional)" },
+            custom: { type: "number", description: "Is custom module (1/0, optional)" }
+          },
+          required: ["module_name"]
+        }
+      },
+      {
+        name: "create_dashboard",
+        description: "Create a new Dashboard in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module: { type: "string", description: "Module name" },
+            name: { type: "string", description: "Dashboard name" },
+            charts: { type: "array", items: { type: "object" }, description: "Charts (optional)" }
+          },
+          required: ["name", "module"]
+        }
+      },
+      {
+        name: "create_workflow",
+        description: "Create a new Workflow in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            document_type: { type: "string", description: "Target DocType" },
+            workflow_name: { type: "string", description: "Workflow name" },
+            states: { type: "array", items: { type: "object" }, description: "States" },
+            transitions: { type: "array", items: { type: "object" }, description: "Transitions" }
+          },
+          required: ["document_type", "workflow_name", "states", "transitions"]
+        }
+      },
+      {
+        name: "create_server_script",
+        description: "Create a new Server Script in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script_type: { type: "string", description: "Script Type (DocType Event, API, etc.)" },
+            script: { type: "string", description: "Script code" },
+            reference_doctype: { type: "string", description: "Reference DocType (optional)" },
+            name: { type: "string", description: "Script name (optional)" }
+          },
+          required: ["script_type", "script"]
+        }
+      },
+      {
+        name: "create_client_script",
+        description: "Create a new Client Script in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script: { type: "string", description: "Script code" },
+            dt: { type: "string", description: "Target DocType" },
+            view: { type: "string", description: "View (Form/List, optional)" },
+            enabled: { type: "number", description: "Enabled (1/0, optional)" }
+          },
+          required: ["script", "dt"]
+        }
+      },
+      {
+        name: "create_webhook",
+        description: "Create a new Webhook in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            webhook_doctype: { type: "string", description: "Target DocType" },
+            webhook_url: { type: "string", description: "Webhook URL" },
+            condition: { type: "string", description: "Condition (optional)" },
+            request_headers: { type: "object", description: "Request headers (optional)" }
+          },
+          required: ["webhook_doctype", "webhook_url"]
+        }
+      },
+      {
+        name: "create_hook",
+        description: "Create a new Hook (custom app hook) in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            hook_type: { type: "string", description: "Hook type (e.g., doc_events, scheduler_events)" },
+            value: { type: "string", description: "Hook value (Python path, etc.)" },
+            app_name: { type: "string", description: "App name (optional)" }
+          },
+          required: ["hook_type", "value"]
+        }
+      },
+      {
+        name: "create_report",
+        description: "Create a new Report in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            report_name: { type: "string", description: "Report name" },
+            ref_doctype: { type: "string", description: "Reference DocType" },
+            report_type: { type: "string", description: "Report type (Query, Script, etc.)" },
+            is_standard: { type: "string", description: "Is standard (Yes/No, optional)" },
+            json: { type: "object", description: "Report JSON (optional)" }
+          },
+          required: ["report_name", "ref_doctype", "report_type"]
+        }
+      },
+      {
+        name: "create_chart",
+        description: "Create a new Chart in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chart_name: { type: "string", description: "Chart name" },
+            chart_type: { type: "string", description: "Chart type (Bar, Line, etc.)" },
+            document_type: { type: "string", description: "Target DocType" },
+            data: { type: "object", description: "Chart data (optional)" }
+          },
+          required: ["chart_name", "chart_type", "document_type"]
+        }
+      },
+      {
+        name: "create_webpage",
+        description: "Create a new Web Page in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Web Page title" },
+            route: { type: "string", description: "Route (URL path)" },
+            content: { type: "string", description: "HTML content" },
+            published: { type: "number", description: "Published (1/0, optional)" }
+          },
+          required: ["title", "route", "content"]
         }
       }
     ]
@@ -1230,6 +1468,136 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }],
           isError: true
         };
+      }
+    }
+
+    case "create_module": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const moduleDef = request.params.arguments;
+      try {
+        const result = await erpnext.createModule(moduleDef);
+        return { content: [{ type: "text", text: `Created Module: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Module: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_dashboard": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const dashboardDef = request.params.arguments;
+      try {
+        const result = await erpnext.createDashboard(dashboardDef);
+        return { content: [{ type: "text", text: `Created Dashboard: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Dashboard: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_workflow": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const workflowDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWorkflow(workflowDef);
+        return { content: [{ type: "text", text: `Created Workflow: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Workflow: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_server_script": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const serverScriptDef = request.params.arguments;
+      try {
+        const result = await erpnext.createServerScript(serverScriptDef);
+        return { content: [{ type: "text", text: `Created Server Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Server Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_client_script": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const clientScriptDef = request.params.arguments;
+      try {
+        const result = await erpnext.createClientScript(clientScriptDef);
+        return { content: [{ type: "text", text: `Created Client Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Client Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_webhook": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const webhookDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWebhook(webhookDef);
+        return { content: [{ type: "text", text: `Created Webhook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Webhook: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_hook": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const hookDef = request.params.arguments;
+      try {
+        const result = await erpnext.createHook(hookDef);
+        return { content: [{ type: "text", text: `Created Hook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Hook: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_report": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const reportDef = request.params.arguments;
+      try {
+        const result = await erpnext.createReport(reportDef);
+        return { content: [{ type: "text", text: `Created Report: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Report: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_chart": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const chartDef = request.params.arguments;
+      try {
+        const result = await erpnext.createChart(chartDef);
+        return { content: [{ type: "text", text: `Created Chart: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Chart: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_webpage": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const webPageDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWebPage(webPageDef);
+        return { content: [{ type: "text", text: `Created Web Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Web Page: ${error?.message || 'Unknown error'}` }], isError: true };
       }
     }
       
