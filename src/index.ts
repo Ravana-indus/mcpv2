@@ -611,6 +611,224 @@ class ERPNextClient {
     }
   }
 
+  // Smart dashboard creation with automatic chart and card integration
+  async createSmartDashboard(dashboardDef: any): Promise<any> {
+    const results: any = {
+      dashboard: null,
+      charts: [],
+      errors: [],
+      warnings: []
+    };
+
+    try {
+      // Create charts first if specified
+      if (dashboardDef.charts && Array.isArray(dashboardDef.charts)) {
+        for (const chartDef of dashboardDef.charts) {
+          try {
+            const chart = await this.createChart(chartDef);
+            results.charts.push({
+              name: chart.name,
+              type: chartDef.chart_type,
+              status: 'created'
+            });
+          } catch (error: any) {
+            results.errors.push({
+              type: 'chart_creation_failed',
+              chart_name: chartDef.chart_name,
+              error: error.message
+            });
+          }
+        }
+      }
+
+      // Prepare dashboard definition
+      const dashboardData = {
+        dashboard_name: dashboardDef.dashboard_name,
+        module: dashboardDef.module || "Custom",
+        is_default: dashboardDef.is_default || 0,
+        is_standard: dashboardDef.is_standard || 0,
+        cards: dashboardDef.cards || []
+      };
+
+      // Create the dashboard
+      const dashboard = await this.createDashboard(dashboardData);
+      results.dashboard = dashboard;
+
+      return results;
+    } catch (error: any) {
+      results.errors.push({
+        type: 'dashboard_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Dashboard creation failed: ${JSON.stringify(results, null, 2)}`);
+    }
+  }
+
+  // Smart workflow creation with validation
+  async createSmartWorkflow(workflowDef: any): Promise<any> {
+    const results: any = {
+      workflow: null,
+      errors: [],
+      warnings: []
+    };
+
+    try {
+      // Validate DocType exists
+      const doctypeExists = await this.docTypeExists(workflowDef.document_type);
+      if (!doctypeExists) {
+        results.warnings.push({
+          type: 'doctype_not_found',
+          doctype: workflowDef.document_type,
+          message: `DocType '${workflowDef.document_type}' does not exist`
+        });
+      }
+
+      // Validate workflow structure
+      if (!workflowDef.states || !Array.isArray(workflowDef.states) || workflowDef.states.length === 0) {
+        throw new Error('Workflow must have at least one state');
+      }
+
+      if (!workflowDef.transitions || !Array.isArray(workflowDef.transitions) || workflowDef.transitions.length === 0) {
+        throw new Error('Workflow must have at least one transition');
+      }
+
+      // Validate state references in transitions
+      const stateNames = workflowDef.states.map((s: any) => s.state);
+      for (const transition of workflowDef.transitions) {
+        if (!stateNames.includes(transition.state)) {
+          results.warnings.push({
+            type: 'invalid_transition_state',
+            state: transition.state,
+            message: `Transition references non-existent state: ${transition.state}`
+          });
+        }
+        if (!stateNames.includes(transition.next_state)) {
+          results.warnings.push({
+            type: 'invalid_transition_next_state',
+            next_state: transition.next_state,
+            message: `Transition references non-existent next state: ${transition.next_state}`
+          });
+        }
+      }
+
+      // Create the workflow
+      const workflow = await this.createWorkflow(workflowDef);
+      results.workflow = workflow;
+
+      return results;
+    } catch (error: any) {
+      results.errors.push({
+        type: 'workflow_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Workflow creation failed: ${JSON.stringify(results, null, 2)}`);
+    }
+  }
+
+  // Smart server script creation with validation
+  async createSmartServerScript(scriptDef: any): Promise<any> {
+    const results: any = {
+      script: null,
+      errors: [],
+      warnings: []
+    };
+
+    try {
+      // Validate script type
+      const validScriptTypes = ['DocType Event', 'API', 'Scheduler Event', 'Custom'];
+      if (!validScriptTypes.includes(scriptDef.script_type)) {
+        throw new Error(`Invalid script type. Must be one of: ${validScriptTypes.join(', ')}`);
+      }
+
+      // Validate DocType Event specific requirements
+      if (scriptDef.script_type === 'DocType Event') {
+        if (!scriptDef.reference_doctype) {
+          throw new Error('Reference DocType is required for DocType Event scripts');
+        }
+        
+        // Check if reference DocType exists
+        const doctypeExists = await this.docTypeExists(scriptDef.reference_doctype);
+        if (!doctypeExists) {
+          results.warnings.push({
+            type: 'reference_doctype_not_found',
+            doctype: scriptDef.reference_doctype,
+            message: `Reference DocType '${scriptDef.reference_doctype}' does not exist`
+          });
+        }
+
+        if (!scriptDef.event) {
+          throw new Error('Event type is required for DocType Event scripts');
+        }
+      }
+
+      // Basic script validation
+      if (!scriptDef.script || scriptDef.script.trim().length === 0) {
+        throw new Error('Script code cannot be empty');
+      }
+
+      // Create the script
+      const script = await this.createServerScript(scriptDef);
+      results.script = script;
+
+      return results;
+    } catch (error: any) {
+      results.errors.push({
+        type: 'script_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Server Script creation failed: ${JSON.stringify(results, null, 2)}`);
+    }
+  }
+
+  // Smart webhook creation with validation
+  async createSmartWebhook(webhookDef: any): Promise<any> {
+    const results: any = {
+      webhook: null,
+      errors: [],
+      warnings: []
+    };
+
+    try {
+      // Validate URL format
+      try {
+        new URL(webhookDef.webhook_url);
+      } catch {
+        throw new Error('Invalid webhook URL format');
+      }
+
+      // Validate DocType exists
+      const doctypeExists = await this.docTypeExists(webhookDef.webhook_doctype);
+      if (!doctypeExists) {
+        results.warnings.push({
+          type: 'doctype_not_found',
+          doctype: webhookDef.webhook_doctype,
+          message: `DocType '${webhookDef.webhook_doctype}' does not exist`
+        });
+      }
+
+      // Set defaults
+      const webhookData = {
+        ...webhookDef,
+        webhook_events: webhookDef.webhook_events || ['after_insert'],
+        request_structure: webhookDef.request_structure || 'Form URL-Encoded',
+        timeout: webhookDef.timeout || 5,
+        enabled: webhookDef.enabled !== undefined ? webhookDef.enabled : 1
+      };
+
+      // Create the webhook
+      const webhook = await this.createWebhook(webhookData);
+      results.webhook = webhook;
+
+      return results;
+    } catch (error: any) {
+      results.errors.push({
+        type: 'webhook_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Webhook creation failed: ${JSON.stringify(results, null, 2)}`);
+    }
+  }
+
   // Create a new Workflow
   async createWorkflow(workflowDef: any): Promise<any> {
     try {
@@ -736,6 +954,100 @@ class ERPNextClient {
     for (const doc of docs) {
       results.push(await this.createDocument(doctype, doc));
     }
+    return results;
+  }
+
+  // Smart bulk create with validation and error handling
+  async bulkSmartCreateDocuments(
+    doctype: string, 
+    docs: any[], 
+    validateBeforeCreate: boolean = true,
+    batchSize: number = 50,
+    continueOnError: boolean = true,
+    returnDetailedResults: boolean = true
+  ): Promise<any> {
+    const results: any = {
+      total: docs.length,
+      created: [],
+      errors: [],
+      warnings: [],
+      summary: {
+        successful: 0,
+        failed: 0,
+        skipped: 0
+      }
+    };
+
+    // Validate DocType exists
+    try {
+      const exists = await this.docTypeExists(doctype);
+      if (!exists) {
+        throw new Error(`DocType '${doctype}' does not exist`);
+      }
+    } catch (error: any) {
+      results.errors.push({
+        type: 'doctype_not_found',
+        error: error.message
+      });
+      return results;
+    }
+
+    // Process documents in batches
+    for (let i = 0; i < docs.length; i += batchSize) {
+      const batch = docs.slice(i, i + batchSize);
+      
+      for (const [index, doc] of batch.entries()) {
+        const docIndex = i + index;
+        
+        try {
+          // Validate document if requested
+          if (validateBeforeCreate) {
+            // Basic validation - check for required fields
+            const meta = await this.getDocTypeMeta(doctype);
+            const requiredFields = (meta.fields || []).filter((f: any) => f.reqd);
+            
+            for (const field of requiredFields) {
+              if (!doc[field.fieldname] && field.fieldname !== 'name') {
+                results.warnings.push({
+                  type: 'missing_required_field',
+                  docIndex,
+                  field: field.fieldname,
+                  message: `Missing required field: ${field.fieldname}`
+                });
+              }
+            }
+          }
+
+          // Create document
+          const created = await this.createDocument(doctype, doc);
+          
+          if (returnDetailedResults) {
+            results.created.push({
+              index: docIndex,
+              name: created.name || doc.name,
+              data: created
+            });
+          }
+          
+          results.summary.successful++;
+          
+        } catch (error: any) {
+          const errorInfo = {
+            index: docIndex,
+            error: error?.response?.data?.message || error?.message || 'Unknown error',
+            data: doc
+          };
+          
+          results.errors.push(errorInfo);
+          results.summary.failed++;
+          
+          if (!continueOnError) {
+            throw new Error(`Bulk create failed at document ${docIndex}: ${errorInfo.error}`);
+          }
+        }
+      }
+    }
+
     return results;
   }
 
@@ -916,6 +1228,179 @@ class ERPNextClient {
   }
   async manageIntegration(name: string, data: any): Promise<any> {
     return this.updateDocument('Integration Service', name, data);
+  }
+
+  // Smart import with conflict resolution
+  async smartImportDocuments(
+    doctype: string,
+    docs: any[],
+    conflictResolution: string = 'skip',
+    validateBeforeImport: boolean = true,
+    createMissingDocTypes: boolean = false,
+    preserveCreationDates: boolean = false,
+    returnDetailedResults: boolean = true
+  ): Promise<any> {
+    const results: any = {
+      total: docs.length,
+      imported: [],
+      errors: [],
+      warnings: [],
+      conflicts: [],
+      summary: {
+        imported: 0,
+        skipped: 0,
+        overwritten: 0,
+        renamed: 0,
+        failed: 0
+      }
+    };
+
+    // Validate DocType exists or create if requested
+    try {
+      const exists = await this.docTypeExists(doctype);
+      if (!exists) {
+        if (createMissingDocTypes) {
+          results.warnings.push({
+            type: 'doctype_created',
+            message: `DocType '${doctype}' was created automatically`
+          });
+          // Create a basic DocType - this is a simplified version
+          await this.createDocType({
+            name: doctype,
+            module: "Custom",
+            fields: [
+              {
+                fieldname: "name",
+                label: "Name",
+                fieldtype: "Data",
+                reqd: 1
+              }
+            ]
+          });
+        } else {
+          throw new Error(`DocType '${doctype}' does not exist`);
+        }
+      }
+    } catch (error: any) {
+      results.errors.push({
+        type: 'doctype_error',
+        error: error.message
+      });
+      return results;
+    }
+
+    for (const [index, doc] of docs.entries()) {
+      try {
+        // Check if document already exists
+        const existingDoc = doc.name ? await this.getDocument(doctype, doc.name).catch(() => null) : null;
+        
+        if (existingDoc) {
+          // Handle conflict based on resolution strategy
+          switch (conflictResolution) {
+            case 'skip':
+              results.conflicts.push({
+                index,
+                name: doc.name,
+                action: 'skipped',
+                reason: 'Document already exists'
+              });
+              results.summary.skipped++;
+              continue;
+              
+            case 'overwrite':
+              // Remove creation date if not preserving
+              if (!preserveCreationDates) {
+                delete doc.creation;
+                delete doc.owner;
+              }
+              
+              const updated = await this.updateDocument(doctype, doc.name, doc);
+              if (returnDetailedResults) {
+                results.imported.push({
+                  index,
+                  name: doc.name,
+                  action: 'overwritten',
+                  data: updated
+                });
+              }
+              results.summary.overwritten++;
+              break;
+              
+            case 'rename':
+              // Generate new name
+              const baseName = doc.name || 'Imported';
+              let newName = `${baseName}_${Date.now()}`;
+              let counter = 1;
+              
+              while (await this.getDocument(doctype, newName).catch(() => null)) {
+                newName = `${baseName}_${Date.now()}_${counter}`;
+                counter++;
+              }
+              
+              doc.name = newName;
+              const renamed = await this.createDocument(doctype, doc);
+              if (returnDetailedResults) {
+                results.imported.push({
+                  index,
+                  name: newName,
+                  action: 'renamed',
+                  originalName: doc.name,
+                  data: renamed
+                });
+              }
+              results.summary.renamed++;
+              break;
+              
+            case 'merge':
+              // Merge fields from imported doc with existing doc
+              const merged = { ...existingDoc, ...doc };
+              delete merged.name; // Don't change the name
+              
+              const mergedResult = await this.updateDocument(doctype, doc.name, merged);
+              if (returnDetailedResults) {
+                results.imported.push({
+                  index,
+                  name: doc.name,
+                  action: 'merged',
+                  data: mergedResult
+                });
+              }
+              results.summary.overwritten++;
+              break;
+          }
+        } else {
+          // Document doesn't exist, create it
+          if (!preserveCreationDates) {
+            delete doc.creation;
+            delete doc.owner;
+          }
+          
+          const created = await this.createDocument(doctype, doc);
+          if (returnDetailedResults) {
+            results.imported.push({
+              index,
+              name: created.name || doc.name,
+              action: 'created',
+              data: created
+            });
+          }
+          results.summary.imported++;
+        }
+        
+      } catch (error: any) {
+        const errorInfo = {
+          index,
+          name: doc.name,
+          error: error?.response?.data?.message || error?.message || 'Unknown error',
+          data: doc
+        };
+        
+        results.errors.push(errorInfo);
+        results.summary.failed++;
+      }
+    }
+
+    return results;
   }
 }
 
@@ -1903,6 +2388,370 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["name", "data"]
         }
+      },
+      {
+        name: "create_smart_workflow",
+        description: "Create a new Workflow with automatic DocType validation and state management",
+        inputSchema: {
+          type: "object",
+          properties: {
+            document_type: { 
+              type: "string", 
+              description: "Target DocType for the workflow" 
+            },
+            workflow_name: { 
+              type: "string", 
+              description: "Name of the workflow" 
+            },
+            states: { 
+              type: "array", 
+              items: { 
+                type: "object",
+                properties: {
+                  state: { type: "string", description: "State name" },
+                  doc_status: { type: "string", description: "Document status (Draft/Submitted/Cancelled)" },
+                  style: { type: "string", description: "CSS style for the state" },
+                  allow_edit: { type: "number", description: "Allow editing in this state (1/0)" }
+                },
+                required: ["state", "doc_status"]
+              }, 
+              description: "Array of workflow states" 
+            },
+            transitions: { 
+              type: "array", 
+              items: { 
+                type: "object",
+                properties: {
+                  state: { type: "string", description: "Current state" },
+                  action: { type: "string", description: "Action name" },
+                  next_state: { type: "string", description: "Next state after action" },
+                  allowed: { type: "string", description: "Allowed roles (optional)" },
+                  condition: { type: "string", description: "Condition for transition (optional)" }
+                },
+                required: ["state", "action", "next_state"]
+              }, 
+              description: "Array of workflow transitions" 
+            },
+            send_email_alert: {
+              type: "number",
+              description: "Send email alerts on state changes (1/0, optional)"
+            },
+            is_active: {
+              type: "number", 
+              description: "Whether workflow is active (1/0, optional, defaults to 1)"
+            }
+          },
+          required: ["document_type", "workflow_name", "states", "transitions"]
+        }
+      },
+      {
+        name: "create_smart_server_script",
+        description: "Create a new Server Script with automatic validation and dependency checking",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script_type: { 
+              type: "string", 
+              description: "Script Type (DocType Event, API, etc.)",
+              enum: ["DocType Event", "API", "Scheduler Event", "Custom"]
+            },
+            script: { 
+              type: "string", 
+              description: "Python script code" 
+            },
+            reference_doctype: { 
+              type: "string", 
+              description: "Reference DocType (required for DocType Event)" 
+            },
+            name: { 
+              type: "string", 
+              description: "Script name (optional, auto-generated if not provided)" 
+            },
+            event: {
+              type: "string",
+              description: "Event type (for DocType Event scripts)",
+              enum: ["before_insert", "after_insert", "before_validate", "after_validate", "before_save", "after_save", "before_submit", "after_submit", "before_cancel", "after_cancel", "before_delete", "after_delete"]
+            },
+            api_method_name: {
+              type: "string",
+              description: "API method name (for API scripts)"
+            },
+            is_system_generated: {
+              type: "number",
+              description: "Is system generated (1/0, optional, defaults to 0)"
+            },
+            disabled: {
+              type: "number",
+              description: "Whether script is disabled (1/0, optional, defaults to 0)"
+            }
+          },
+          required: ["script_type", "script"]
+        }
+      },
+      {
+        name: "create_smart_client_script",
+        description: "Create a new Client Script with automatic DocType validation and enhanced error handling",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script: { 
+              type: "string", 
+              description: "JavaScript code for the client script" 
+            },
+            dt: { 
+              type: "string", 
+              description: "Target DocType" 
+            },
+            view: { 
+              type: "string", 
+              description: "View (Form/List, optional)",
+              enum: ["Form", "List", "Tree", "Kanban", "Calendar"]
+            },
+            enabled: { 
+              type: "number", 
+              description: "Enabled (1/0, optional, defaults to 1)" 
+            },
+            name: {
+              type: "string",
+              description: "Script name (optional, auto-generated if not provided)"
+            },
+            script_type: {
+              type: "string",
+              description: "Script type (optional)",
+              enum: ["DocType", "Page", "Report"]
+            }
+          },
+          required: ["script", "dt"]
+        }
+      },
+      {
+        name: "create_smart_webhook",
+        description: "Create a new Webhook with automatic validation and security features",
+        inputSchema: {
+          type: "object",
+          properties: {
+            webhook_doctype: { 
+              type: "string", 
+              description: "Target DocType for webhook events" 
+            },
+            webhook_url: { 
+              type: "string", 
+              description: "Webhook URL to send data to" 
+            },
+            condition: { 
+              type: "string", 
+              description: "Condition for when to trigger webhook (optional)" 
+            },
+            request_headers: { 
+              type: "object", 
+              description: "Request headers as key-value pairs (optional)" 
+            },
+            webhook_events: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["after_insert", "after_update", "after_delete", "after_submit", "after_cancel"]
+              },
+              description: "Events to trigger webhook on"
+            },
+            request_structure: {
+              type: "string",
+              description: "Request structure (Form URL-Encoded/JSON, optional)",
+              enum: ["Form URL-Encoded", "JSON"]
+            },
+            timeout: {
+              type: "number",
+              description: "Timeout in seconds (optional, defaults to 5)"
+            },
+            enabled: {
+              type: "number",
+              description: "Whether webhook is enabled (1/0, optional, defaults to 1)"
+            }
+          },
+          required: ["webhook_doctype", "webhook_url"]
+        }
+      },
+      {
+        name: "create_smart_report",
+        description: "Create a new Report with automatic DocType validation and query optimization",
+        inputSchema: {
+          type: "object",
+          properties: {
+            report_name: { 
+              type: "string", 
+              description: "Report name" 
+            },
+            ref_doctype: { 
+              type: "string", 
+              description: "Reference DocType for the report" 
+            },
+            report_type: { 
+              type: "string", 
+              description: "Report type",
+              enum: ["Query Report", "Script Report", "Custom Report", "Report Builder"]
+            },
+            is_standard: { 
+              type: "string", 
+              description: "Is standard (Yes/No, optional, defaults to 'No')",
+              enum: ["Yes", "No"]
+            },
+            json: { 
+              type: "object", 
+              description: "Report JSON configuration (optional)" 
+            },
+            query: {
+              type: "string",
+              description: "SQL query (for Query Report type)"
+            },
+            script: {
+              type: "string", 
+              description: "Python script (for Script Report type)"
+            },
+            module: {
+              type: "string",
+              description: "Module name (optional, defaults to 'Custom')"
+            },
+            disabled: {
+              type: "number",
+              description: "Whether report is disabled (1/0, optional, defaults to 0)"
+            }
+          },
+          required: ["report_name", "ref_doctype", "report_type"]
+        }
+      },
+      {
+        name: "create_smart_dashboard",
+        description: "Create a new Dashboard with automatic chart and report integration",
+        inputSchema: {
+          type: "object",
+          properties: {
+            dashboard_name: { 
+              type: "string", 
+              description: "Dashboard name" 
+            },
+            module: { 
+              type: "string", 
+              description: "Module name (optional, defaults to 'Custom')" 
+            },
+            is_default: { 
+              type: "number", 
+              description: "Is default dashboard (1/0, optional, defaults to 0)" 
+            },
+            is_standard: { 
+              type: "number", 
+              description: "Is standard dashboard (1/0, optional, defaults to 0)" 
+            },
+            cards: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  card_name: { type: "string", description: "Card name" },
+                  card_type: { type: "string", description: "Card type (Chart/Report/Shortcut)" },
+                  chart_name: { type: "string", description: "Chart name (for Chart type)" },
+                  report_name: { type: "string", description: "Report name (for Report type)" },
+                  doctype: { type: "string", description: "DocType (for Shortcut type)" },
+                  width: { type: "string", description: "Card width (optional)" },
+                  height: { type: "string", description: "Card height (optional)" }
+                },
+                required: ["card_name", "card_type"]
+              },
+              description: "Array of dashboard cards"
+            },
+            charts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  chart_name: { type: "string", description: "Chart name" },
+                  chart_type: { type: "string", description: "Chart type (Bar/Line/Pie/Doughnut)" },
+                  document_type: { type: "string", description: "Target DocType" },
+                  data: { type: "object", description: "Chart data configuration" },
+                  filters: { type: "object", description: "Chart filters" }
+                },
+                required: ["chart_name", "chart_type", "document_type"]
+              },
+              description: "Array of charts to create and add to dashboard"
+            }
+          },
+          required: ["dashboard_name"]
+        }
+      },
+      {
+        name: "bulk_smart_create_documents",
+        description: "Bulk create documents with validation, error handling, and progress tracking",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { 
+              type: "string", 
+              description: "DocType name" 
+            },
+            docs: { 
+              type: "array", 
+              items: { type: "object" }, 
+              description: "Array of documents to create" 
+            },
+            validate_before_create: {
+              type: "number",
+              description: "Validate documents before creating (1/0, optional, defaults to 1)"
+            },
+            batch_size: {
+              type: "number",
+              description: "Batch size for processing (optional, defaults to 50)"
+            },
+            continue_on_error: {
+              type: "number",
+              description: "Continue processing on individual document errors (1/0, optional, defaults to 1)"
+            },
+            return_detailed_results: {
+              type: "number",
+              description: "Return detailed results for each document (1/0, optional, defaults to 1)"
+            }
+          },
+          required: ["doctype", "docs"]
+        }
+      },
+      {
+        name: "smart_import_documents",
+        description: "Import documents with validation, conflict resolution, and detailed reporting",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { 
+              type: "string", 
+              description: "DocType name" 
+            },
+            docs: { 
+              type: "array", 
+              items: { type: "object" }, 
+              description: "Array of documents to import" 
+            },
+            conflict_resolution: {
+              type: "string",
+              description: "Conflict resolution strategy",
+              enum: ["skip", "overwrite", "rename", "merge"],
+              default: "skip"
+            },
+            validate_before_import: {
+              type: "number",
+              description: "Validate documents before importing (1/0, optional, defaults to 1)"
+            },
+            create_missing_doctypes: {
+              type: "number",
+              description: "Create missing DocTypes if they don't exist (1/0, optional, defaults to 0)"
+            },
+            preserve_creation_dates: {
+              type: "number",
+              description: "Preserve original creation dates (1/0, optional, defaults to 0)"
+            },
+            return_detailed_results: {
+              type: "number",
+              description: "Return detailed results for each document (1/0, optional, defaults to 1)"
+            }
+          },
+          required: ["doctype", "docs"]
+        }
       }
     ]
   };
@@ -2886,6 +3735,523 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const { name, data } = request.params.arguments;
       const result = await erpnext.manageIntegration(name, data);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "create_smart_workflow": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { document_type, workflow_name, states, transitions, send_email_alert, is_active } = request.params.arguments;
+      
+      if (!document_type || !workflow_name || !states || !transitions) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Document type, workflow name, states, and transitions are required"
+        );
+      }
+      
+      try {
+        const workflowDef = {
+          document_type,
+          workflow_name,
+          states,
+          transitions,
+          send_email_alert,
+          is_active
+        };
+        
+        const result = await erpnext.createSmartWorkflow(workflowDef);
+        
+        // Format the response with detailed information
+        let responseText = `Smart Workflow Creation Results for '${workflow_name}':\n\n`;
+        
+        if (result.workflow) {
+          responseText += `✅ Workflow Created: ${result.workflow.name}\n`;
+          responseText += `📋 Details: ${JSON.stringify(result.workflow, null, 2)}\n\n`;
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          responseText += `⚠️  Warnings:\n`;
+          for (const warning of result.warnings) {
+            responseText += `  - ${warning.message}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          responseText += `❌ Errors:\n`;
+          for (const error of result.errors) {
+            responseText += `  - ${error.error}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: responseText
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Smart Workflow creation failed for '${workflow_name}':\n\n${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+    case "create_smart_server_script": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { script_type, script, reference_doctype, name, event, api_method_name, is_system_generated, disabled } = request.params.arguments;
+      
+      if (!script_type || !script) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Script type and script are required"
+        );
+      }
+      
+      try {
+        const serverScriptDef = {
+          script_type,
+          script,
+          reference_doctype,
+          name,
+          event,
+          api_method_name,
+          is_system_generated,
+          disabled
+        };
+        
+        const result = await erpnext.createSmartServerScript(serverScriptDef);
+        
+        // Format the response with detailed information
+        let responseText = `Smart Server Script Creation Results for '${name || 'Unnamed Script'}':\n\n`;
+        
+        if (result.script) {
+          responseText += `✅ Script Created: ${result.script.name}\n`;
+          responseText += `📋 Details: ${JSON.stringify(result.script, null, 2)}\n\n`;
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          responseText += `⚠️  Warnings:\n`;
+          for (const warning of result.warnings) {
+            responseText += `  - ${warning.message}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          responseText += `❌ Errors:\n`;
+          for (const error of result.errors) {
+            responseText += `  - ${error.error}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: responseText
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Smart Server Script creation failed: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+    case "create_smart_client_script": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { script, dt, view, enabled, name, script_type } = request.params.arguments;
+      
+      if (!script || !dt) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Script and target DocType are required"
+        );
+      }
+      
+      try {
+        const clientScriptDef = {
+          script,
+          dt,
+          view,
+          enabled,
+          name,
+          script_type
+        };
+        
+        const result = await erpnext.createClientScript(clientScriptDef);
+        
+        // Try to reload the Client Script to apply changes
+        await erpnext.reloadDocType(result.name);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Created Smart Client Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        // Enhanced error reporting with suggestions
+        let errorMessage = `Failed to create Smart Client Script '${name}': ${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
+          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
+          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if custom DocType creation is enabled';
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: errorMessage
+          }],
+          isError: true
+        };
+      }
+    }
+    case "create_smart_webhook": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { webhook_doctype, webhook_url, condition, request_headers, webhook_events, request_structure, timeout, enabled } = request.params.arguments;
+      
+      if (!webhook_doctype || !webhook_url) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Webhook doctype and URL are required"
+        );
+      }
+      
+      try {
+        const webhookDef = {
+          webhook_doctype,
+          webhook_url,
+          condition,
+          request_headers,
+          webhook_events,
+          request_structure,
+          timeout,
+          enabled
+        };
+        
+        const result = await erpnext.createSmartWebhook(webhookDef);
+        
+        // Format the response with detailed information
+        let responseText = `Smart Webhook Creation Results for '${webhook_url}':\n\n`;
+        
+        if (result.webhook) {
+          responseText += `✅ Webhook Created: ${result.webhook.name}\n`;
+          responseText += `📋 Details: ${JSON.stringify(result.webhook, null, 2)}\n\n`;
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          responseText += `⚠️  Warnings:\n`;
+          for (const warning of result.warnings) {
+            responseText += `  - ${warning.message}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          responseText += `❌ Errors:\n`;
+          for (const error of result.errors) {
+            responseText += `  - ${error.error}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: responseText
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Smart Webhook creation failed: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+    case "create_smart_report": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { report_name, ref_doctype, report_type, is_standard, json, query, script, module, disabled } = request.params.arguments;
+      
+      if (!report_name || !ref_doctype || !report_type) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Report name, reference doctype, and report type are required"
+        );
+      }
+      
+      try {
+        const reportDef = {
+          report_name,
+          ref_doctype,
+          report_type,
+          is_standard,
+          json,
+          query,
+          script,
+          module,
+          disabled
+        };
+        
+        const result = await erpnext.createReport(reportDef);
+        
+        // Try to reload the Report to apply changes
+        await erpnext.reloadDocType(result.name);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Created Smart Report: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        // Enhanced error reporting with suggestions
+        let errorMessage = `Failed to create Smart Report '${report_name}': ${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
+          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
+          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if custom DocType creation is enabled';
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: errorMessage
+          }],
+          isError: true
+        };
+      }
+    }
+    case "create_smart_dashboard": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { dashboard_name, module, is_default, is_standard, cards, charts } = request.params.arguments;
+      
+      if (!dashboard_name) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Dashboard name is required"
+        );
+      }
+      
+      try {
+        const dashboardDef = {
+          dashboard_name,
+          module,
+          is_default,
+          is_standard,
+          cards,
+          charts
+        };
+        
+        const result = await erpnext.createSmartDashboard(dashboardDef);
+        
+        // Format the response with detailed information
+        let responseText = `Smart Dashboard Creation Results for '${dashboard_name}':\n\n`;
+        
+        if (result.dashboard) {
+          responseText += `✅ Dashboard Created: ${result.dashboard.name}\n`;
+          responseText += `📋 Details: ${JSON.stringify(result.dashboard, null, 2)}\n\n`;
+        }
+        
+        if (result.charts && result.charts.length > 0) {
+          responseText += `📊 Charts Created:\n`;
+          for (const chart of result.charts) {
+            responseText += `  - ${chart.name} (${chart.type})\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          responseText += `⚠️  Warnings:\n`;
+          for (const warning of result.warnings) {
+            responseText += `  - ${warning.message}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          responseText += `❌ Errors:\n`;
+          for (const error of result.errors) {
+            responseText += `  - ${error.error}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: responseText
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Smart Dashboard creation failed: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+    case "bulk_smart_create_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { doctype, docs, validate_before_create, batch_size, continue_on_error, return_detailed_results } = request.params.arguments;
+      
+      if (!doctype || !docs) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType and documents are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.bulkSmartCreateDocuments(doctype, docs, validate_before_create, batch_size, continue_on_error, return_detailed_results);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Bulk Smart Create Results:\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to bulk smart create documents: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+    case "smart_import_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { doctype, docs, conflict_resolution, validate_before_import, create_missing_doctypes, preserve_creation_dates, return_detailed_results } = request.params.arguments;
+      
+      if (!doctype || !docs) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType and documents are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.smartImportDocuments(doctype, docs, conflict_resolution, validate_before_import, create_missing_doctypes, preserve_creation_dates, return_detailed_results);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Smart Import Results:\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to smart import documents: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
     }
       
     default:

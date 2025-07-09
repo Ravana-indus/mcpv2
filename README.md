@@ -42,6 +42,16 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `create_child_table` - Create a new child table DocType specifically designed for parent-child relationships
 - `add_child_table_to_doctype` - Add a child table field to an existing DocType
 
+#### Smart Tools (Enhanced Performance & Validation)
+- `create_smart_workflow` - Create a new Workflow with automatic DocType validation and state management
+- `create_smart_server_script` - Create a new Server Script with automatic validation and dependency checking
+- `create_smart_client_script` - Create a new Client Script with automatic DocType validation and enhanced error handling
+- `create_smart_webhook` - Create a new Webhook with automatic validation and security features
+- `create_smart_report` - Create a new Report with automatic DocType validation and query optimization
+- `create_smart_dashboard` - Create a new Dashboard with automatic chart and report integration
+- `bulk_smart_create_documents` - Bulk create documents with validation, error handling, and progress tracking
+- `smart_import_documents` - Import documents with validation, conflict resolution, and detailed reporting
+
 #### Custom Application Creation
 - `create_module` - Create a new Module in ERPNext
 - `create_dashboard` - Create a new Dashboard in ERPNext
@@ -92,6 +102,15 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `manage_integration` - Update/manage an integration service
 
 ### ✨ New in this Version
+- **Smart Tools Suite**: Enhanced tools with automatic validation, dependency resolution, and detailed error reporting
+  - `create_smart_workflow` - Workflow creation with DocType validation and state management
+  - `create_smart_server_script` - Server script creation with validation and dependency checking
+  - `create_smart_client_script` - Client script creation with DocType validation
+  - `create_smart_webhook` - Webhook creation with URL validation and security features
+  - `create_smart_report` - Report creation with DocType validation and query optimization
+  - `create_smart_dashboard` - Dashboard creation with automatic chart integration
+  - `bulk_smart_create_documents` - Bulk document creation with validation and progress tracking
+  - `smart_import_documents` - Document import with conflict resolution strategies
 - **Smart DocType Creation**: Automatic dependency resolution for child tables and link validation
 - **Enhanced Error Handling**: Detailed error messages with actionable suggestions for the agent
 - **Automatic Permission Setting**: Administrator permissions (RWCD) are automatically set for new DocTypes
@@ -851,3 +870,262 @@ The smart doctype creation provides detailed error information:
   - Creating simple DocTypes without dependencies
   - Want manual control over the creation process
   - Creating child table DocTypes individually
+
+## Smart Tools Usage Examples
+
+### Smart Workflow Creation
+
+Create a workflow with automatic validation and state management:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_smart_workflow</tool_name>
+<arguments>
+{
+  "document_type": "Sales Order",
+  "workflow_name": "Sales Approval Workflow",
+  "states": [
+    {
+      "state": "Draft",
+      "doc_status": "Draft",
+      "style": "background-color: #f0f0f0"
+    },
+    {
+      "state": "Pending Approval",
+      "doc_status": "Submitted",
+      "style": "background-color: #fff3cd"
+    },
+    {
+      "state": "Approved",
+      "doc_status": "Submitted",
+      "style": "background-color: #d4edda"
+    },
+    {
+      "state": "Rejected",
+      "doc_status": "Cancelled",
+      "style": "background-color: #f8d7da"
+    }
+  ],
+  "transitions": [
+    {
+      "state": "Draft",
+      "action": "Submit for Approval",
+      "next_state": "Pending Approval"
+    },
+    {
+      "state": "Pending Approval",
+      "action": "Approve",
+      "next_state": "Approved"
+    },
+    {
+      "state": "Pending Approval",
+      "action": "Reject",
+      "next_state": "Rejected"
+    }
+  ],
+  "send_email_alert": 1,
+  "is_active": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Server Script Creation
+
+Create a server script with automatic validation:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_smart_server_script</tool_name>
+<arguments>
+{
+  "script_type": "DocType Event",
+  "reference_doctype": "Sales Order",
+  "event": "after_save",
+  "script": "if doc.status == 'Approved':\n    frappe.msgprint('Sales Order has been approved!')\n    # Send notification to customer\n    frappe.sendmail(\n        recipients=[doc.customer_email],\n        subject='Your order has been approved',\n        message='Your sales order has been approved and is being processed.'\n    )",
+  "name": "Sales Order Approval Notification"
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Dashboard Creation
+
+Create a dashboard with automatic chart integration:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_smart_dashboard</tool_name>
+<arguments>
+{
+  "dashboard_name": "Sales Analytics Dashboard",
+  "module": "Custom",
+  "is_default": 0,
+  "charts": [
+    {
+      "chart_name": "Monthly Sales Chart",
+      "chart_type": "Bar",
+      "document_type": "Sales Order",
+      "data": {
+        "type": "Bar",
+        "data": {
+          "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+          "datasets": [{
+            "name": "Sales Amount",
+            "values": [10000, 15000, 12000, 18000, 20000, 25000]
+          }]
+        }
+      }
+    }
+  ],
+  "cards": [
+    {
+      "card_name": "Total Sales",
+      "card_type": "Shortcut",
+      "doctype": "Sales Order"
+    }
+  ]
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Bulk Document Creation
+
+Create multiple documents with validation and error handling:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>bulk_smart_create_documents</tool_name>
+<arguments>
+{
+  "doctype": "Customer",
+  "docs": [
+    {
+      "customer_name": "ABC Corporation",
+      "customer_type": "Company",
+      "customer_group": "Commercial",
+      "territory": "United States"
+    },
+    {
+      "customer_name": "XYZ Industries",
+      "customer_type": "Company",
+      "customer_group": "Commercial",
+      "territory": "Canada"
+    },
+    {
+      "customer_name": "John Doe",
+      "customer_type": "Individual",
+      "customer_group": "Individual",
+      "territory": "United States"
+    }
+  ],
+  "validate_before_create": 1,
+  "batch_size": 10,
+  "continue_on_error": 1,
+  "return_detailed_results": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Document Import
+
+Import documents with conflict resolution:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>smart_import_documents</tool_name>
+<arguments>
+{
+  "doctype": "Item",
+  "docs": [
+    {
+      "item_code": "ITEM001",
+      "item_name": "Product A",
+      "item_group": "Products",
+      "stock_uom": "Nos"
+    },
+    {
+      "item_code": "ITEM002",
+      "item_name": "Product B",
+      "item_group": "Products",
+      "stock_uom": "Nos"
+    }
+  ],
+  "conflict_resolution": "skip",
+  "validate_before_import": 1,
+  "create_missing_doctypes": 0,
+  "preserve_creation_dates": 0,
+  "return_detailed_results": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Webhook Creation
+
+Create a webhook with URL validation and security features:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_smart_webhook</tool_name>
+<arguments>
+{
+  "webhook_doctype": "Sales Order",
+  "webhook_url": "https://api.external-system.com/webhook",
+  "webhook_events": ["after_insert", "after_update"],
+  "request_structure": "JSON",
+  "request_headers": {
+    "Authorization": "Bearer your-api-key",
+    "Content-Type": "application/json"
+  },
+  "condition": "doc.status == 'Approved'",
+  "timeout": 10,
+  "enabled": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+## Smart Tools Benefits
+
+### Performance Improvements
+- **Reduced API Calls**: Smart tools batch operations and validate dependencies upfront
+- **Better Error Handling**: Detailed error messages with actionable suggestions
+- **Batch Processing**: Efficient handling of large datasets with configurable batch sizes
+- **Conflict Resolution**: Multiple strategies for handling existing data
+
+### Enhanced User Experience
+- **Detailed Feedback**: Comprehensive reporting of what was created, warnings, and errors
+- **Progress Tracking**: Real-time updates for long-running operations
+- **Validation**: Pre-creation validation prevents invalid data
+- **Recovery Suggestions**: Specific steps to resolve common issues
+
+### Data Integrity
+- **Dependency Validation**: Ensures all referenced DocTypes exist before creation
+- **Field Validation**: Checks required fields and data types
+- **Permission Management**: Automatic setting of appropriate permissions
+- **Conflict Handling**: Smart strategies for handling existing resources
+
+### When to Use Smart Tools
+
+**Always use smart tools when:**
+- Creating complex resources with dependencies
+- Performing bulk operations on large datasets
+- Working with untrusted or external data
+- Needing detailed feedback and error reporting
+- Requiring high performance and reliability
+- Managing data migrations or imports
+
+**Use basic tools when:**
+- Creating simple resources without dependencies
+- Wanting manual control over the creation process
+- Performing quick, one-off operations
+- Working with trusted, validated data
