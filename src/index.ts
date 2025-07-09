@@ -446,8 +446,60 @@ class ERPNextClient {
   // Create a new Web Page
   async createWebPage(webPageDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Web Page', { data: webPageDef });
+      // Ensure published is set to 1 by default for better accessibility
+      const enhancedWebPageDef = {
+        ...webPageDef,
+        published: webPageDef.published !== undefined ? webPageDef.published : 1
+      };
+      const response = await this.axiosInstance.post('/api/resource/Web Page', { data: enhancedWebPageDef });
       return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Web Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Desk Page
+  async createDeskPage(deskPageDef: any): Promise<any> {
+    try {
+      // Ensure published is set to 1 by default and add required fields for desk pages
+      const enhancedDeskPageDef = {
+        ...deskPageDef,
+        published: deskPageDef.published !== undefined ? deskPageDef.published : 1,
+        // Add standard fields that might be required for desk pages
+        is_standard: "No",
+        module: deskPageDef.module || "Website"
+      };
+      const response = await this.axiosInstance.post('/api/resource/Desk Page', { data: enhancedDeskPageDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Desk Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Web Page with optional Desk Page creation
+  async createWebPageWithDesk(webPageDef: any, createDeskPage: boolean = false): Promise<any> {
+    try {
+      // Create the Web Page
+      const webPage = await this.createWebPage(webPageDef);
+      
+      // If requested, also create a corresponding Desk Page
+      if (createDeskPage) {
+        const deskPageDef = {
+          name: webPageDef.title?.toLowerCase().replace(/\s+/g, '-') || webPage.name,
+          title: webPageDef.title,
+          route: webPageDef.route,
+          content: webPageDef.content,
+          published: webPageDef.published || 1
+        };
+        
+        try {
+          await this.createDeskPage(deskPageDef);
+        } catch (deskError: any) {
+          console.warn(`Desk Page creation failed: ${deskError.message}`);
+        }
+      }
+      
+      return webPage;
     } catch (error: any) {
       throw new Error(`Failed to create Web Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
@@ -1234,6 +1286,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             route: { type: "string", description: "Route (URL path)" },
             content: { type: "string", description: "HTML content" },
             published: { type: "number", description: "Published (1/0, optional)" }
+          },
+          required: ["title", "route", "content"]
+        }
+      },
+      {
+        name: "create_deskpage",
+        description: "Create a new Desk Page in ERPNext (accessible through desk interface)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Desk Page title" },
+            route: { type: "string", description: "Route (URL path)" },
+            content: { type: "string", description: "HTML content" },
+            published: { type: "number", description: "Published (1/0, optional)" }
+          },
+          required: ["title", "route", "content"]
+        }
+      },
+      {
+        name: "create_webpage_with_desk",
+        description: "Create a new Web Page with optional Desk Page creation for desk interface access",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Web Page title" },
+            route: { type: "string", description: "Route (URL path)" },
+            content: { type: "string", description: "HTML content" },
+            published: { type: "number", description: "Published (1/0, optional)" },
+            create_desk_page: { type: "boolean", description: "Also create a Desk Page for desk interface access (default: true)" }
           },
           required: ["title", "route", "content"]
         }
@@ -2174,6 +2255,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: `Created Web Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
       } catch (error: any) {
         return { content: [{ type: "text", text: `Failed to create Web Page: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_deskpage": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const deskPageDef = request.params.arguments;
+      try {
+        const result = await erpnext.createDeskPage(deskPageDef);
+        return { content: [{ type: "text", text: `Created Desk Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Desk Page: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_webpage_with_desk": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { create_desk_page = true, ...webPageDef } = request.params.arguments;
+      try {
+        const result = await erpnext.createWebPageWithDesk(webPageDef, create_desk_page);
+        return { content: [{ type: "text", text: `Created Web Page with Desk: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Web Page with Desk: ${error?.message || 'Unknown error'}` }], isError: true };
       }
     }
 

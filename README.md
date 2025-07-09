@@ -52,6 +52,8 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `create_report` - Create a new Report in ERPNext
 - `create_chart` - Create a new Chart in ERPNext
 - `create_webpage` - Create a new Web Page in ERPNext
+- `create_deskpage` - Create a new Desk Page in ERPNext (accessible through desk interface)
+- `create_webpage_with_desk` - Create a new Web Page with optional Desk Page creation for desk interface access
 
 #### Validation & Testing
 - `validate_doctype` - Validate a DocType definition (basic checks)
@@ -91,7 +93,7 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `manage_integration` - Update/manage an integration service
 
 ### ✨ New in this Version
-- **Complete Custom Application Development**: Create modules, dashboards, workflows, scripts, webhooks, reports, charts, and webpages
+- **Complete Custom Application Development**: Create modules, dashboards, workflows, scripts, webhooks, reports, charts, webpages, and desk pages
 - **Advanced CRUD Operations**: Full create, read, update, delete, clone, and bulk operations
 - **Export/Import Capabilities**: Export and import documents as JSON
 - **Validation & Testing**: Validate and test DocTypes, workflows, and scripts
@@ -105,6 +107,7 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - **Enhanced Error Handling**: Better error messages with detailed API response information
 - **Automatic Field Management**: Required fields are automatically added to DocTypes and child tables
 - **DocType Reloading**: Automatic reloading of DocTypes after creation to apply changes immediately
+- **Enhanced Webpage Creation**: Fixed webpage access issues with new desk page support and automatic publishing
 
 ## Configuration
 
@@ -515,6 +518,37 @@ The Inspector will provide a URL to access debugging tools in your browser.
   "route": "about",
   "content": "<h1>About Our Company</h1><p>Welcome to our company website.</p>",
   "published": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Create Desk Page (Accessible through Desk Interface)
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_deskpage</tool_name>
+<arguments>
+{
+  "title": "Sample Website Content",
+  "route": "sample-website-content",
+  "content": "<h1>Sample Content</h1><p>This page is accessible through the desk interface.</p>"
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Create Web Page with Desk Page Access
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_webpage_with_desk</tool_name>
+<arguments>
+{
+  "title": "My Website Page",
+  "route": "my-website-page",
+  "content": "<h1>Welcome to My Website</h1><p>This page is accessible both publicly and through the desk.</p>",
+  "create_desk_page": true
 }
 </arguments>
 </use_mcp_tool>
