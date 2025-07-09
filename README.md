@@ -37,9 +37,10 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `get_doctypes` - Get a list of all available DocTypes
 - `get_doctype_fields` - Get fields list for a specific DocType
 - `get_doctype_meta` - Get detailed metadata for a DocType including field definitions
-- `create_doctype` - Create a new DocType in ERPNext with enhanced field support
+- `create_doctype` - Create a new DocType in ERPNext with enhanced field support and automatic permissions
 - `create_child_table` - Create a new child table DocType specifically designed for parent-child relationships
 - `add_child_table_to_doctype` - Add a child table field to an existing DocType
+- `fix_doctype_access` - Fix access issues for existing DocTypes by setting permissions and reloading
 
 #### Custom Application Creation
 - `create_module` - Create a new Module in ERPNext
@@ -108,6 +109,7 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - **Automatic Field Management**: Required fields are automatically added to DocTypes and child tables
 - **DocType Reloading**: Automatic reloading of DocTypes after creation to apply changes immediately
 - **Enhanced Webpage Creation**: Fixed webpage access issues with new desk page support and automatic publishing
+- **Enhanced DocType Creation**: Fixed DocType access issues with automatic permission setting and improved reloading
 
 ## Configuration
 
@@ -346,6 +348,52 @@ The Inspector will provide a URL to access debugging tools in your browser.
 ```
 
 ### Custom Application Creation
+
+#### Create DocType (with automatic permissions)
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_doctype</tool_name>
+<arguments>
+{
+  "name": "Project Task",
+  "module": "Projects",
+  "fields": [
+    {
+      "fieldname": "task_name",
+      "label": "Task Name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Open\nIn Progress\nCompleted"
+    }
+  ]
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Fix DocType Access Issues
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>fix_doctype_access</tool_name>
+<arguments>
+{
+  "doctype": "Project Task"
+}
+</arguments>
+</use_mcp_tool>
+```
 
 #### Create Module
 ```

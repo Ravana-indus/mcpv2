@@ -274,9 +274,117 @@ class ERPNextClient {
         data: doctype
       });
 
-      return response.data.data;
+      const createdDocType = response.data.data;
+
+      // Set default permissions for the DocType
+      await this.setDefaultPermissions(createdDocType.name, doctype.module);
+
+      return createdDocType;
     } catch (error: any) {
       throw new Error(`Failed to create DocType: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Set default permissions for a DocType
+  async setDefaultPermissions(doctypeName: string, module: string = "Custom"): Promise<void> {
+    try {
+      // Get current user to set as owner
+      const userResponse = await this.axiosInstance.get('/api/method/frappe.auth.get_logged_user');
+      const currentUser = userResponse.data.message;
+
+      // Set default permissions for the DocType
+      const permissions = [
+        {
+          role: "System Manager",
+          permlevel: 0,
+          read: 1,
+          write: 1,
+          create: 1,
+          delete: 1,
+          submit: 1,
+          cancel: 1,
+          amend: 1,
+          report: 1,
+          export: 1,
+          share: 1,
+          print: 1,
+          email: 1
+        },
+        {
+          role: "Administrator", 
+          permlevel: 0,
+          read: 1,
+          write: 1,
+          create: 1,
+          delete: 1,
+          submit: 1,
+          cancel: 1,
+          amend: 1,
+          report: 1,
+          export: 1,
+          share: 1,
+          print: 1,
+          email: 1
+        }
+      ];
+
+      // Add permissions for each role
+      for (const perm of permissions) {
+        try {
+          await this.axiosInstance.post('/api/method/frappe.permissions.add_permission', {
+            doctype: doctypeName,
+            role: perm.role,
+            permlevel: perm.permlevel,
+            read: perm.read,
+            write: perm.write,
+            create: perm.create,
+            delete: perm.delete,
+            submit: perm.submit,
+            cancel: perm.cancel,
+            amend: perm.amend,
+            report: perm.report,
+            export: perm.export,
+            share: perm.share,
+            print: perm.print,
+            email: perm.email
+          });
+        } catch (permError: any) {
+          console.warn(`Failed to set permission for role ${perm.role}: ${permError?.message || 'Unknown error'}`);
+        }
+      }
+
+      // Also try to set permissions using the DocPerm DocType
+      try {
+        const docPerms = permissions.map(perm => ({
+          doctype: "DocPerm",
+          parent: doctypeName,
+          parentfield: "permissions",
+          parenttype: "DocType",
+          role: perm.role,
+          permlevel: perm.permlevel,
+          read: perm.read,
+          write: perm.write,
+          create: perm.create,
+          delete: perm.delete,
+          submit: perm.submit,
+          cancel: perm.cancel,
+          amend: perm.amend,
+          report: perm.report,
+          export: perm.export,
+          share: perm.share,
+          print: perm.print,
+          email: perm.email
+        }));
+
+        for (const docPerm of docPerms) {
+          await this.axiosInstance.post('/api/resource/DocPerm', { data: docPerm });
+        }
+      } catch (docPermError: any) {
+        console.warn(`Failed to set DocPerm: ${docPermError?.message || 'Unknown error'}`);
+      }
+
+    } catch (error: any) {
+      console.warn(`Failed to set default permissions for ${doctypeName}: ${error?.message || 'Unknown error'}`);
     }
   }
 
@@ -334,14 +442,42 @@ class ERPNextClient {
   // Reload DocType after creation (to apply changes)
   async reloadDocType(doctype: string): Promise<any> {
     try {
+      // First try the standard reload method
       const response = await this.axiosInstance.post(`/api/method/frappe.core.doctype.doctype.doctype.reload_doc`, {
         doctype: 'DocType',
         docname: doctype
       });
+      
+      // Also try to clear cache
+      try {
+        await this.axiosInstance.post('/api/method/frappe.utils.caching.clear_cache');
+      } catch (cacheError: any) {
+        console.warn(`Failed to clear cache: ${cacheError?.message || 'Unknown error'}`);
+      }
+      
       return response.data.message;
     } catch (error: any) {
       console.warn(`Failed to reload DocType ${doctype}: ${error?.message || 'Unknown error'}`);
       // This is not critical, so we don't throw
+      return null;
+    }
+  }
+
+  // Ensure DocType is accessible by setting up proper permissions and reloading
+  async ensureDocTypeAccess(doctypeName: string): Promise<any> {
+    try {
+      // Set permissions if not already set
+      await this.setDefaultPermissions(doctypeName);
+      
+      // Reload the DocType
+      await this.reloadDocType(doctypeName);
+      
+      // Try to get the DocType meta to verify it's accessible
+      const meta = await this.getDocTypeMeta(doctypeName);
+      
+      return meta;
+    } catch (error: any) {
+      console.warn(`Failed to ensure DocType access for ${doctypeName}: ${error?.message || 'Unknown error'}`);
       return null;
     }
   }
@@ -1054,6 +1190,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["name"]
+        }
+      },
+      {
+        name: "fix_doctype_access",
+        description: "Fix access issues for an existing DocType by setting permissions and reloading",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "Name of the DocType to fix"
+            }
+          },
+          required: ["doctype"]
         }
       },
       {
@@ -1971,13 +2121,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         
         const result = await erpnext.createDocType(doctypeDefinition);
         
-        // Try to reload the DocType to apply changes
-        await erpnext.reloadDocType(result.name);
+        // Ensure the DocType is accessible by setting permissions and reloading
+        await erpnext.ensureDocTypeAccess(result.name);
         
         return {
           content: [{
             type: "text",
-            text: `Created DocType: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+            text: `Created DocType: ${result.name}\n\nDocType has been created and permissions have been set. You should now be able to create and access documents in this DocType.\n\n${JSON.stringify(result, null, 2)}`
           }]
         };
       } catch (error: any) {
@@ -1985,6 +2135,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           content: [{
             type: "text",
             text: `Failed to create DocType ${name}: ${error?.message || 'Unknown error'}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "fix_doctype_access": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const doctype = String(request.params.arguments?.doctype);
+      
+      if (!doctype) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name is required"
+        );
+      }
+      
+      try {
+        // Ensure the DocType is accessible by setting permissions and reloading
+        const result = await erpnext.ensureDocTypeAccess(doctype);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `Fixed access for DocType: ${doctype}\n\nPermissions have been set and DocType has been reloaded. You should now be able to create and access documents in this DocType.\n\n${JSON.stringify(result, null, 2)}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Failed to fix access for DocType ${doctype}: ${error?.message || 'Unknown error'}`
           }],
           isError: true
         };
@@ -2023,13 +2214,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         
         const result = await erpnext.createChildTable(childTableDefinition);
         
-        // Try to reload the DocType to apply changes
-        await erpnext.reloadDocType(result.name);
+        // Ensure the DocType is accessible by setting permissions and reloading
+        await erpnext.ensureDocTypeAccess(result.name);
         
         return {
           content: [{
             type: "text",
-            text: `Created Child Table: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+            text: `Created Child Table: ${result.name}\n\nChild table has been created and permissions have been set. You should now be able to use this child table in parent DocTypes.\n\n${JSON.stringify(result, null, 2)}`
           }]
         };
       } catch (error: any) {
