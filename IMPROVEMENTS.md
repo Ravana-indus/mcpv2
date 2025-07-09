@@ -20,6 +20,134 @@ This document outlines the improvements made to the ERPNext MCP Server to make i
 ### 🔧 New Smart Tools
 
 #### `create_smart_doctype`
+- **Enhanced Error Handling**: Comprehensive error messages with specific suggestions
+- **Automatic Dependency Resolution**: Creates missing child tables and validates Link fields
+- **Detailed Results**: Reports created dependencies, warnings, and main DocType creation
+
+#### `create_smart_workflow`
+- **Enhanced Error Handling**: Detailed error messages with workflow-specific suggestions
+- **DocType Validation**: Ensures target DocType exists before workflow creation
+- **State and Transition Validation**: Validates workflow state consistency
+
+#### `create_smart_server_script`
+- **Enhanced Error Handling**: Python syntax validation and detailed error reporting
+- **DocType and Event Validation**: Ensures referenced DocTypes and events are valid
+- **Script Validation**: Pre-creation syntax and logic validation
+
+#### `create_smart_client_script`
+- **Enhanced Error Handling**: JavaScript syntax validation and comprehensive error messages
+- **View and DocType Validation**: Ensures target DocType and view exist
+- **Event Trigger Validation**: Validates client-side event handling
+
+#### `create_smart_webhook`
+- **Enhanced Error Handling**: URL validation and security recommendations
+- **DocType and Event Validation**: Ensures webhook configuration is valid
+- **Condition Validation**: Validates webhook trigger conditions
+
+#### `create_smart_dashboard`
+- **Enhanced Error Handling**: Chart and report validation with detailed suggestions
+- **Card and Layout Validation**: Ensures dashboard components are properly configured
+- **Module and Permission Validation**: Validates access to referenced resources
+
+#### `bulk_smart_create_documents`
+- **Enhanced Error Handling**: Batch processing errors with optimization suggestions
+- **Validation and Conflict Resolution**: Comprehensive data validation and duplicate handling
+- **Performance Optimization**: Configurable batch sizes and error handling strategies
+
+#### `smart_import_documents`
+- **Enhanced Error Handling**: Import-specific error messages with resolution strategies
+- **Conflict Resolution**: Multiple strategies for handling existing data
+- **Data Validation**: Comprehensive validation before import
+
+### 🎯 Enhanced Error Handling for All Smart Tools
+
+All smart tools now feature comprehensive error handling that provides:
+
+#### **Detailed Error Messages**
+- Clear, descriptive error messages that explain what went wrong
+- Context-specific information about the failure
+- Structured error reporting with categorized information
+
+#### **Intelligent Suggestions**
+- **Context-Aware Recommendations**: Suggestions based on the specific error type
+- **Actionable Solutions**: Step-by-step guidance to resolve issues
+- **Best Practice Tips**: Recommendations for optimal usage
+
+#### **Error Categories with Specific Guidance**
+
+##### **DocType-Related Errors**
+- Suggestions to use `create_smart_doctype` for missing dependencies
+- Guidance on checking DocType names and permissions
+- Recommendations for creating missing DocTypes first
+
+##### **Validation Errors**
+- Field validation guidance with specific checks
+- Data type and format recommendations
+- Required field completion suggestions
+
+##### **Permission Errors**
+- Administrator role requirements
+- Feature enablement guidance
+- Access verification recommendations
+
+##### **Syntax and Code Errors**
+- Language-specific syntax checking (Python for server scripts, JavaScript for client scripts)
+- Import and function call validation
+- Tool recommendations for syntax validation
+
+##### **Duplicate and Conflict Errors**
+- Unique naming suggestions
+- Conflict resolution strategy recommendations
+- Existing item checking guidance
+
+##### **URL and Network Errors**
+- Webhook URL validation guidance
+- HTTPS and security recommendations
+- Endpoint testing suggestions
+
+##### **Batch and Performance Errors**
+- Batch size optimization recommendations
+- Memory and timeout guidance
+- Processing strategy suggestions
+
+#### **Benefits of Enhanced Error Handling**
+- **Faster Problem Resolution**: Users get specific guidance on how to fix issues
+- **Reduced Support Burden**: Clear error messages reduce the need for troubleshooting
+- **Better User Experience**: Actionable suggestions help users succeed
+- **Consistent Quality**: All smart tools now provide the same level of error detail
+- **Learning Opportunity**: Users learn best practices through error guidance
+
+### � Permissions Tool Fixes and Improvements
+
+#### **Fixed `set_permissions` Tool**
+- **Issue**: The tool was using a non-existent API endpoint (`/api/method/frappe.permissions.add_permission`)
+- **Solution**: Updated to use the correct ERPNext API approach by updating DocType meta
+- **Implementation**: Now properly updates permissions through DocType meta updates and reloads the DocType
+
+#### **New `smart_set_permissions` Tool**
+- **Enhanced Validation**: Validates roles and DocType existence before setting permissions
+- **Better Error Handling**: Comprehensive error messages with specific suggestions
+- **Flexible Options**: 
+  - `validate_roles`: Validate that roles exist before setting permissions
+  - `preserve_existing`: Preserve existing permissions not in the provided array
+  - `reload_doctype`: Reload DocType after setting permissions
+- **Detailed Results**: Reports success/failure for each permission with specific guidance
+
+#### **Enhanced Error Handling for Permissions**
+- **403 Error Guidance**: Specific suggestions for permission-related issues
+- **DocType Validation**: Checks for DocType existence and accessibility
+- **Role Validation**: Ensures role names are valid and exist in ERPNext
+- **Fallback Mechanisms**: Multiple approaches to handle different ERPNext configurations
+
+#### **Benefits of Permissions Improvements**
+- **Reliable Operation**: Fixed the core API issue that was causing 403 errors
+- **Better User Experience**: Clear feedback on what succeeded and what failed
+- **Comprehensive Guidance**: Specific suggestions for resolving permission issues
+- **Flexible Configuration**: Options to customize permission setting behavior
+
+### �🔧 New Smart Tools
+
+#### `create_smart_doctype`
 Intelligent DocType creation with automatic dependency resolution.
 
 **Features:**
@@ -143,142 +271,3 @@ Adds a child table field to an existing DocType.
   }
 }
 ```
-
-#### `get_doctype_meta`
-Retrieves detailed metadata for a DocType including all field definitions.
-
-**Parameters:**
-- `doctype` (required): Name of the DocType
-
-**Example:**
-```json
-{
-  "name": "get_doctype_meta",
-  "arguments": {
-    "doctype": "Customer"
-  }
-}
-```
-
-### 5. Enhanced `create_doctype` Tool
-The existing `create_doctype` tool has been enhanced with:
-- Support for hidden fields
-- Better field type descriptions including Table fields
-- Automatic DocType reloading after creation
-- Improved validation and error handling
-
-## Usage Examples
-
-### Creating a Complete DocType with Child Table
-
-1. **Create the Child Table:**
-```json
-{
-  "name": "create_child_table",
-  "arguments": {
-    "name": "Project Task Details",
-    "fields": [
-      {
-        "fieldname": "task_name",
-        "label": "Task Name",
-        "fieldtype": "Data",
-        "reqd": 1,
-        "in_list_view": 1
-      },
-      {
-        "fieldname": "assigned_to",
-        "label": "Assigned To",
-        "fieldtype": "Link",
-        "options": "User",
-        "in_list_view": 1
-      },
-      {
-        "fieldname": "status",
-        "label": "Status",
-        "fieldtype": "Select",
-        "options": "Open\nIn Progress\nCompleted",
-        "default": "Open",
-        "in_list_view": 1
-      }
-    ]
-  }
-}
-```
-
-2. **Create the Main DocType:**
-```json
-{
-  "name": "create_doctype",
-  "arguments": {
-    "name": "Project",
-    "fields": [
-      {
-        "fieldname": "project_name",
-        "label": "Project Name",
-        "fieldtype": "Data",
-        "reqd": 1
-      },
-      {
-        "fieldname": "client",
-        "label": "Client",
-        "fieldtype": "Link",
-        "options": "Customer"
-      },
-      {
-        "fieldname": "start_date",
-        "label": "Start Date",
-        "fieldtype": "Date"
-      },
-      {
-        "fieldname": "end_date",
-        "label": "End Date",
-        "fieldtype": "Date"
-      }
-    ],
-    "title_field": "project_name"
-  }
-}
-```
-
-3. **Add the Child Table to the Main DocType:**
-```json
-{
-  "name": "add_child_table_to_doctype",
-  "arguments": {
-    "parent_doctype": "Project",
-    "child_table_doctype": "Project Task Details",
-    "fieldname": "tasks",
-    "label": "Project Tasks"
-  }
-}
-```
-
-## Technical Improvements
-
-### Error Handling
-- Enhanced error messages include ERPNext API response details
-- Better validation of required parameters
-- Graceful handling of authentication failures
-
-### Field Management
-- Automatic addition of required parent fields for child tables
-- Proper field ordering and validation
-- Support for all ERPNext field types
-
-### API Integration
-- Improved HTTP response handling
-- Better authentication flow
-- Enhanced DocType metadata retrieval
-
-## Bug Fixes
-- Fixed error message formatting issues
-- Resolved field validation problems
-- Corrected child table parent field requirements
-- Improved HTTP server stability
-
-## Compatibility
-- Compatible with ERPNext v13, v14, and v15
-- Works with both Cloud and On-Premise installations
-- Supports custom modules and app development
-
-The MCP Server is now fully capable of creating complex DocTypes with child tables, providing a robust foundation for ERPNext customization and development workflows.

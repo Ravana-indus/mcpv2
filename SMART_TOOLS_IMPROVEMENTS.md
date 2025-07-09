@@ -6,12 +6,102 @@ This document outlines the smart tools that have been added to the ERPNext MCP S
 
 The smart tools provide the following key improvements:
 
-1. **Automatic Dependency Resolution** - Automatically create and validate dependencies
-2. **Enhanced Error Reporting** - Detailed error messages with actionable suggestions
-3. **Comprehensive Validation** - Pre-creation validation to catch issues early
-4. **Batch Processing** - Efficient handling of large datasets
-5. **Conflict Resolution** - Smart handling of existing resources
-6. **Detailed Results** - Comprehensive reporting of what was created, warnings, and errors
+- **Automatic Dependency Resolution**: Smart tools automatically create missing dependencies
+- **Enhanced Validation**: Comprehensive validation before creation
+- **Better Error Handling**: Detailed error messages with specific suggestions
+- **Batch Operations**: Efficient handling of multiple items
+- **Intelligent Conflict Resolution**: Smart handling of duplicates and conflicts
+- **Performance Optimization**: Reduced API calls and improved efficiency
+
+## Enhanced Error Handling
+
+All smart tools now feature comprehensive error handling that provides:
+
+### 🎯 **Detailed Error Messages**
+- Clear, descriptive error messages that explain what went wrong
+- Context-specific information about the failure
+- Structured error reporting with categorized information
+
+### 💡 **Intelligent Suggestions**
+- **Context-Aware Recommendations**: Suggestions based on the specific error type
+- **Actionable Solutions**: Step-by-step guidance to resolve issues
+- **Best Practice Tips**: Recommendations for optimal usage
+
+### 🔍 **Error Categories with Specific Guidance**
+
+#### **DocType-Related Errors**
+- Suggestions to use `create_smart_doctype` for missing dependencies
+- Guidance on checking DocType names and permissions
+- Recommendations for creating missing DocTypes first
+
+#### **Validation Errors**
+- Field validation guidance with specific checks
+- Data type and format recommendations
+- Required field completion suggestions
+
+#### **Permission Errors**
+- Administrator role requirements
+- Feature enablement guidance
+- Access verification recommendations
+
+#### **Syntax and Code Errors**
+- Language-specific syntax checking (Python for server scripts, JavaScript for client scripts)
+- Import and function call validation
+- Tool recommendations for syntax validation
+
+#### **Duplicate and Conflict Errors**
+- Unique naming suggestions
+- Conflict resolution strategy recommendations
+- Existing item checking guidance
+
+#### **URL and Network Errors**
+- Webhook URL validation guidance
+- HTTPS and security recommendations
+- Endpoint testing suggestions
+
+#### **Batch and Performance Errors**
+- Batch size optimization recommendations
+- Memory and timeout guidance
+- Processing strategy suggestions
+
+### 📊 **Error Handling Examples**
+
+#### **Smart DocType Creation**
+```
+Smart DocType creation failed for 'Customer_Order':
+
+DocType 'Supplier' referenced in Link field does not exist
+
+💡 Suggestions:
+- Use create_smart_doctype tool for automatic dependency resolution
+- Ensure Link fields reference existing DocTypes
+- Create child table DocTypes before referencing them in Table fields
+```
+
+#### **Smart Workflow Creation**
+```
+Smart Workflow creation failed for 'Order_Approval':
+
+State 'Pending' referenced in transition does not exist in states array
+
+💡 Suggestions:
+- Ensure all states referenced in transitions exist in the states array
+- Check that state names match exactly (case-sensitive)
+- Verify transition rules are valid
+```
+
+#### **Smart Server Script Creation**
+```
+Smart Server Script creation failed for 'Order_Validation':
+
+Invalid Python syntax in script
+
+💡 Suggestions:
+- Check Python syntax in your script
+- Ensure all imports are valid
+- Verify variable names and function calls
+- Use the lint_script tool to validate syntax
+```
 
 ## Smart Tools List
 
