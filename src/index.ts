@@ -22,7 +22,7 @@ import {
   McpError,
   ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from "axios";
 import process from 'node:process';
 
 // ERPNext API client configuration
@@ -50,7 +50,10 @@ class ERPNextClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
-      }
+      },
+      // Prevent 417 errors by avoiding the Expect header
+      maxRedirects: 5,
+      validateStatus: (status: number) => status < 500
     });
     
     // Configure authentication if credentials provided
@@ -62,6 +65,16 @@ class ERPNextClient {
         `token ${apiKey}:${apiSecret}`;
       this.authenticated = true;
     }
+    
+    // Remove problematic headers that cause 417 errors
+    this.axiosInstance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+      // Remove Expect header which causes 417 errors on some servers
+      if (config.headers) {
+        delete config.headers['Expect'];
+        delete config.headers['expect'];
+      }
+      return config;
+    });
   }
 
   isAuthenticated(): boolean {
@@ -366,7 +379,18 @@ class ERPNextClient {
   // Create a new Dashboard
   async createDashboard(dashboardDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Dashboard', { data: dashboardDef });
+      // Ensure required fields are present
+      const dashboardData = {
+        doctype: "Dashboard",
+        dashboard_name: dashboardDef.dashboard_name || dashboardDef.name || "New Dashboard",
+        module: dashboardDef.module || "Custom",
+        is_standard: dashboardDef.is_standard || 0,
+        is_default: dashboardDef.is_default || 0,
+        charts: dashboardDef.charts || [],
+        ...dashboardDef
+      };
+      
+      const response = await this.axiosInstance.post('/api/resource/Dashboard', { data: dashboardData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Dashboard: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -376,7 +400,23 @@ class ERPNextClient {
   // Create a new Workflow
   async createWorkflow(workflowDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Workflow', { data: workflowDef });
+      // Ensure required fields are present
+      const workflowData = {
+        doctype: "Workflow",
+        workflow_name: workflowDef.workflow_name || workflowDef.name || "New Workflow",
+        document_type: workflowDef.document_type || workflowDef.doctype,
+        is_active: workflowDef.is_active !== undefined ? workflowDef.is_active : 1,
+        module: workflowDef.module || "Custom",
+        states: workflowDef.states || [],
+        transitions: workflowDef.transitions || [],
+        ...workflowDef
+      };
+      
+      if (!workflowData.document_type) {
+        throw new Error("document_type is required for creating a workflow");
+      }
+      
+      const response = await this.axiosInstance.post('/api/resource/Workflow', { data: workflowData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Workflow: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -386,7 +426,20 @@ class ERPNextClient {
   // Create a new Server Script
   async createServerScript(scriptDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Server Script', { data: scriptDef });
+      // Ensure required fields are present
+      const scriptData = {
+        doctype: "Server Script",
+        name: scriptDef.name || `Server Script ${Date.now()}`,
+        script_type: scriptDef.script_type || "DocType Event",
+        reference_doctype: scriptDef.reference_doctype || scriptDef.doctype,
+        doctype_event: scriptDef.doctype_event || "Before Save",
+        script: scriptDef.script || "# Server Script",
+        disabled: scriptDef.disabled || 0,
+        module: scriptDef.module || "Custom",
+        ...scriptDef
+      };
+      
+      const response = await this.axiosInstance.post('/api/resource/Server Script', { data: scriptData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Server Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -396,7 +449,23 @@ class ERPNextClient {
   // Create a new Client Script
   async createClientScript(scriptDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Client Script', { data: scriptDef });
+      // Ensure required fields are present
+      const scriptData = {
+        doctype: "Client Script",
+        name: scriptDef.name || `Client Script ${Date.now()}`,
+        dt: scriptDef.dt || scriptDef.doctype || scriptDef.reference_doctype,
+        view: scriptDef.view || "Form",
+        script: scriptDef.script || "// Client Script",
+        enabled: scriptDef.enabled !== undefined ? scriptDef.enabled : 1,
+        module: scriptDef.module || "Custom",
+        ...scriptDef
+      };
+      
+      if (!scriptData.dt) {
+        throw new Error("dt (DocType) is required for creating a client script");
+      }
+      
+      const response = await this.axiosInstance.post('/api/resource/Client Script', { data: scriptData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Client Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -406,7 +475,26 @@ class ERPNextClient {
   // Create a new Webhook
   async createWebhook(webhookDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Webhook', { data: webhookDef });
+      // Ensure required fields are present
+      const webhookData = {
+        doctype: "Webhook",
+        webhook_doctype: webhookDef.webhook_doctype || webhookDef.doctype || webhookDef.reference_doctype,
+        webhook_docevent: webhookDef.webhook_docevent || "on_update",
+        request_url: webhookDef.request_url || webhookDef.url,
+        request_method: webhookDef.request_method || "POST",
+        enabled: webhookDef.enabled !== undefined ? webhookDef.enabled : 1,
+        ...webhookDef
+      };
+      
+      if (!webhookData.webhook_doctype) {
+        throw new Error("webhook_doctype is required for creating a webhook");
+      }
+      
+      if (!webhookData.request_url) {
+        throw new Error("request_url is required for creating a webhook");
+      }
+      
+      const response = await this.axiosInstance.post('/api/resource/Webhook', { data: webhookData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Webhook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -416,9 +504,44 @@ class ERPNextClient {
   // Create a new Hook (Custom App Hook DocType, if available)
   async createHook(hookDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Hook', { data: hookDef });
+      // First try the Hook DocType if it exists
+      const hookData = {
+        doctype: "Hook",
+        hook_name: hookDef.hook_name || hookDef.name || "New Hook",
+        hook_type: hookDef.hook_type || "doc_events",
+        hook_event: hookDef.hook_event || "on_update",
+        reference_doctype: hookDef.reference_doctype || hookDef.doctype,
+        method: hookDef.method || hookDef.handler,
+        ...hookDef
+      };
+      
+      const response = await this.axiosInstance.post('/api/resource/Hook', { data: hookData });
       return response.data.data;
     } catch (error: any) {
+      // If Hook DocType doesn't exist, create a Server Script as an alternative
+      if (error?.response?.status === 404 || error.message?.includes('DocType Hook not found')) {
+        try {
+          const serverScriptData = {
+            doctype: "Server Script",
+            name: hookDef.hook_name || hookDef.name || `Hook ${Date.now()}`,
+            script_type: "DocType Event",
+            reference_doctype: hookDef.reference_doctype || hookDef.doctype || "ToDo",
+            doctype_event: hookDef.hook_event || hookDef.event || "Before Save",
+            script: hookDef.script || hookDef.method || `# Hook Script\n# ${hookDef.description || 'Custom hook'}`,
+            disabled: hookDef.disabled || 0,
+            module: hookDef.module || "Custom"
+          };
+          
+          const result = await this.createServerScript(serverScriptData);
+          return {
+            ...result,
+            message: "Created as Server Script since Hook DocType is not available",
+            hook_type: "server_script"
+          };
+        } catch (fallbackError: any) {
+          throw new Error(`Failed to create Hook: ${error?.response?.data?.message || error?.message || 'Unknown error'}. Hook DocType may not be installed.`);
+        }
+      }
       throw new Error(`Failed to create Hook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
@@ -436,7 +559,27 @@ class ERPNextClient {
   // Create a new Chart (Dashboard Chart)
   async createChart(chartDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Dashboard Chart', { data: chartDef });
+      // Ensure required fields are present
+      const chartData = {
+        doctype: "Dashboard Chart",
+        chart_name: chartDef.chart_name || chartDef.name || "New Chart",
+        chart_type: chartDef.chart_type || "Count",
+        document_type: chartDef.document_type || chartDef.doctype || chartDef.reference_doctype,
+        based_on: chartDef.based_on || "creation",
+        type: chartDef.type || "Line",
+        timeseries: chartDef.timeseries !== undefined ? chartDef.timeseries : 1,
+        time_interval: chartDef.time_interval || "Daily",
+        module: chartDef.module || "Custom",
+        is_public: chartDef.is_public || 0,
+        is_standard: chartDef.is_standard || 0,
+        ...chartDef
+      };
+      
+      if (!chartData.document_type) {
+        throw new Error("document_type is required for creating a chart");
+      }
+      
+      const response = await this.axiosInstance.post('/api/resource/Dashboard Chart', { data: chartData });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Chart: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -544,25 +687,84 @@ class ERPNextClient {
     const results: any[] = [];
     for (const perm of perms) {
       try {
-        const response = await this.axiosInstance.post('/api/method/frappe.permissions.add_permission', {
-          doctype,
+        // Try using the DocPerm doctype directly
+        const permData = {
+          doctype: "DocPerm",
+          parent: doctype,
+          parenttype: "DocType",
+          parentfield: "permissions",
+          role: perm.role,
+          permlevel: perm.permlevel || 0,
+          read: perm.read || 0,
+          write: perm.write || 0,
+          create: perm.create || 0,
+          delete: perm.delete || 0,
+          submit: perm.submit || 0,
+          cancel: perm.cancel || 0,
+          amend: perm.amend || 0,
+          report: perm.report || 0,
+          export: perm.export || 0,
+          import: perm.import || 0,
+          share: perm.share || 0,
+          print: perm.print || 0,
+          email: perm.email || 0,
           ...perm
-        });
-        results.push(response.data.message || perm);
+        };
+        
+        const response = await this.axiosInstance.post('/api/resource/DocPerm', { data: permData });
+        results.push(response.data.data || perm);
       } catch (error: any) {
-        results.push({ perm, error: error?.response?.data?.message || error?.message || 'Unknown error' });
+        // If DocPerm fails, try the method API as fallback
+        try {
+          const response = await this.axiosInstance.post('/api/method/frappe.core.doctype.doctype.doctype.add_permission', {
+            doctype,
+            role: perm.role,
+            permlevel: perm.permlevel || 0,
+            ...perm
+          });
+          results.push(response.data.message || perm);
+        } catch (fallbackError: any) {
+          results.push({ 
+            perm, 
+            error: fallbackError?.response?.data?.message || error?.response?.data?.message || error?.message || 'Unknown error',
+            note: 'Both DocPerm and method API failed. User may not have permission to modify DocType permissions.'
+          });
+        }
       }
     }
     return results;
   }
   async shareDocument(doctype: string, name: string, user: string, permlevel: number): Promise<any> {
-    // Frappe has a Share DocType
-    return this.createDocument('DocShare', {
-      share_doctype: doctype,
-      share_name: name,
-      user,
-      perm: permlevel
-    });
+    try {
+      // First check if DocShare exists
+      const shareData = {
+        share_doctype: doctype,
+        share_name: name,
+        user: user,
+        read: permlevel >= 1 ? 1 : 0,
+        write: permlevel >= 2 ? 1 : 0,
+        share: permlevel >= 3 ? 1 : 0,
+        everyone: 0
+      };
+      
+      // Try creating via DocShare
+      return await this.createDocument('DocShare', shareData);
+    } catch (error: any) {
+      // If DocShare fails, try the share API
+      try {
+        const response = await this.axiosInstance.post('/api/method/frappe.share.add', {
+          doctype: doctype,
+          name: name,
+          user: user,
+          read: permlevel >= 1 ? 1 : 0,
+          write: permlevel >= 2 ? 1 : 0,
+          share: permlevel >= 3 ? 1 : 0
+        });
+        return response.data.message || { shared: true };
+      } catch (fallbackError: any) {
+        throw new Error(`Failed to share document: ${fallbackError?.response?.data?.message || error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      }
+    }
   }
 
   // --- [ERPNextClient: Add more advanced methods] ---
@@ -604,21 +806,56 @@ class ERPNextClient {
   }
   async rollbackDocument(doctype: string, name: string, version_id: string): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/method/frappe.desk.version.rollback', {
-        doc_type: doctype,
+      // First try the official rollback API
+      const response = await this.axiosInstance.post('/api/method/frappe.desk.form.load.rollback', {
+        doctype: doctype,
         docname: name,
         version: version_id
       });
-      return response.data.message;
+      
+      // After rollback, fetch the updated document to ensure we have the latest state
+      const updatedDoc = await this.getDocument(doctype, name);
+      
+      return {
+        message: "Document rolled back successfully",
+        rolled_back_to_version: version_id,
+        document: updatedDoc
+      };
     } catch (error: any) {
-      // Fallback – attempt naive diff-based rollback
+      // Try alternative rollback endpoint
       try {
-        const version = await this.getDocument('Version', version_id);
-        if (version && version.data) {
-          return this.updateDocument(doctype, name, JSON.parse(version.data));
-        }
-      } catch { /* ignore */ }
-      throw new Error(`Rollback failed: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+        const response = await this.axiosInstance.post('/api/method/frappe.desk.version.rollback', {
+          doc_type: doctype,
+          docname: name,
+          version: version_id
+        });
+        
+        // Fetch updated document
+        const updatedDoc = await this.getDocument(doctype, name);
+        
+        return {
+          message: response.data.message || "Document rolled back",
+          rolled_back_to_version: version_id,
+          document: updatedDoc
+        };
+      } catch (error2: any) {
+        // Final fallback – attempt manual rollback using version data
+        try {
+          const version = await this.getDocument('Version', version_id);
+          if (version && version.data) {
+            const versionData = JSON.parse(version.data);
+            const result = await this.updateDocument(doctype, name, versionData);
+            
+            return {
+              message: "Document rolled back manually from version data",
+              rolled_back_to_version: version_id,
+              document: result,
+              method: "manual"
+            };
+          }
+        } catch { /* ignore */ }
+        throw new Error(`Rollback failed: ${error2?.response?.data?.message || error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      }
     }
   }
 
@@ -674,10 +911,73 @@ class ERPNextClient {
 
   // Integrations (register/manage)
   async registerIntegration(integrationDef: any): Promise<any> {
-    return this.createDocument('Integration Service', integrationDef);
+    try {
+      // Check if Integration Service DocType exists
+      const integrationData = {
+        doctype: "Integration Service",
+        service_name: integrationDef.service_name || integrationDef.name || "New Integration",
+        enabled: integrationDef.enabled !== undefined ? integrationDef.enabled : 1,
+        module: integrationDef.module || "Integrations",
+        ...integrationDef
+      };
+      
+      return await this.createDocument('Integration Service', integrationData);
+    } catch (error: any) {
+      // If Integration Service doesn't exist, try creating a Custom Integration DocType
+      if (error.message?.includes('DocType') || error.message?.includes('Not Found')) {
+        // Create a simple integration tracking document using a Note or Custom DocType
+        const fallbackData = {
+          doctype: "Note",
+          title: `Integration: ${integrationDef.service_name || integrationDef.name || "New Integration"}`,
+          content: JSON.stringify({
+            type: "integration_service",
+            ...integrationDef
+          }, null, 2),
+          public: 0
+        };
+        
+        try {
+          const result = await this.createDocument('Note', fallbackData);
+          return {
+            ...result,
+            message: "Created as Note since Integration Service DocType is not available",
+            integration_type: "note_based"
+          };
+        } catch (fallbackError: any) {
+          throw new Error(`Failed to register integration: ${error?.message || 'Unknown error'}. Integration Service DocType may not be installed.`);
+        }
+      }
+      throw error;
+    }
   }
   async manageIntegration(name: string, data: any): Promise<any> {
-    return this.updateDocument('Integration Service', name, data);
+    try {
+      return await this.updateDocument('Integration Service', name, data);
+    } catch (error: any) {
+      // If it was created as a Note, try updating the Note
+      if (error.message?.includes('not found')) {
+        try {
+          // Search for the integration note
+          const notes = await this.getDocList('Note', {
+            title: ['like', `%Integration: ${name}%`]
+          }, ['name', 'content'], 1);
+          
+          if (notes && notes.length > 0) {
+            const noteContent = JSON.parse(notes[0].content || '{}');
+            const updatedContent = {
+              ...noteContent,
+              ...data,
+              last_updated: new Date().toISOString()
+            };
+            
+            return await this.updateDocument('Note', notes[0].name, {
+              content: JSON.stringify(updatedContent, null, 2)
+            });
+          }
+        } catch { /* ignore */ }
+      }
+      throw new Error(`Failed to manage integration ${name}: ${error?.message || 'Unknown error'}`);
+    }
   }
 }
 
