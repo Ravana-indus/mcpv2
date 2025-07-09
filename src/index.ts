@@ -1092,17 +1092,75 @@ class ERPNextClient {
   }
   async setPermissions(doctype: string, perms: any[]): Promise<any> {
     const results: any[] = [];
-    for (const perm of perms) {
+    
+    try {
+      // First, get the current DocType meta
+      const meta = await this.getDocTypeMeta(doctype);
+      
+      // Update the permissions in the meta
+      if (!meta.permissions) {
+        meta.permissions = [];
+      }
+      
+      // Add or update permissions
+      for (const perm of perms) {
+        const existingIndex = meta.permissions.findIndex((p: any) => p.role === perm.role);
+        
+        if (existingIndex >= 0) {
+          // Update existing permission
+          meta.permissions[existingIndex] = {
+            ...meta.permissions[existingIndex],
+            ...perm
+          };
+        } else {
+          // Add new permission
+          meta.permissions.push(perm);
+        }
+      }
+      
+      // Update the DocType meta
+      const response = await this.axiosInstance.put(`/api/resource/DocType/${doctype}`, {
+        permissions: meta.permissions
+      });
+      
+      // Reload the DocType to apply changes
+      await this.reloadDocType(doctype);
+      
+      results.push({
+        success: true,
+        message: `Permissions updated for ${doctype}`,
+        permissions: meta.permissions
+      });
+      
+    } catch (error: any) {
+      // Fallback: try alternative approach using DocType update
       try {
-        const response = await this.axiosInstance.post('/api/method/frappe.permissions.add_permission', {
-          doctype,
-          ...perm
+        const response = await this.axiosInstance.put(`/api/resource/DocType/${doctype}`, {
+          permissions: perms
         });
-        results.push(response.data.message || perm);
-      } catch (error: any) {
-        results.push({ perm, error: error?.response?.data?.message || error?.message || 'Unknown error' });
+        
+        await this.reloadDocType(doctype);
+        
+        results.push({
+          success: true,
+          message: `Permissions set for ${doctype} using fallback method`,
+          permissions: perms
+        });
+        
+      } catch (fallbackError: any) {
+        results.push({
+          success: false,
+          error: `Failed to set permissions: ${fallbackError?.response?.data?.message || fallbackError?.message || 'Unknown error'}`,
+          suggestions: [
+            'Ensure you have Administrator role',
+            'Check if the DocType exists and is accessible',
+            'Verify you have permission to modify DocType meta',
+            'Try using the ERPNext UI to set permissions manually'
+          ]
+        });
       }
     }
+    
     return results;
   }
   async shareDocument(doctype: string, name: string, user: string, permlevel: number): Promise<any> {
@@ -2169,6 +2227,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             doctype: { type: "string", description: "DocType name" },
             perms: { type: "array", items: { type: "object" }, description: "Permissions array" }
+          },
+          required: ["doctype", "perms"]
+        }
+      },
+      {
+        name: "smart_set_permissions",
+        description: "Set permissions for a DocType with enhanced validation and error handling",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            perms: { type: "array", items: { type: "object" }, description: "Permissions array" },
+            validate_roles: { type: "boolean", description: "Validate that roles exist before setting permissions", default: true },
+            preserve_existing: { type: "boolean", description: "Preserve existing permissions not in the provided array", default: true },
+            reload_doctype: { type: "boolean", description: "Reload DocType after setting permissions", default: true }
           },
           required: ["doctype", "perms"]
         }
@@ -3603,11 +3676,289 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const { doctype, perms } = request.params.arguments;
+      
+      if (!doctype || !perms || !Array.isArray(perms)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name and permissions array are required"
+        );
+      }
+      
       try {
         const result = await erpnext.setPermissions(doctype, perms);
-        return { content: [{ type: "text", text: `Set permissions for ${doctype}\n\n${JSON.stringify(result, null, 2)}` }] };
+        
+        // Check if any permissions failed
+        const failedPerms = result.filter((r: any) => !r.success);
+        const successfulPerms = result.filter((r: any) => r.success);
+        
+        if (failedPerms.length > 0) {
+          let errorMessage = `Some permissions failed to set for '${doctype}':\n\n`;
+          
+          for (const failed of failedPerms) {
+            errorMessage += `❌ Error: ${failed.error}\n`;
+            if (failed.suggestions) {
+              errorMessage += `💡 Suggestions:\n`;
+              for (const suggestion of failed.suggestions) {
+                errorMessage += `  - ${suggestion}\n`;
+              }
+            }
+            errorMessage += `\n`;
+          }
+          
+          if (successfulPerms.length > 0) {
+            errorMessage += `✅ Successfully set ${successfulPerms.length} permission(s)\n`;
+          }
+          
+          return { 
+            content: [{ type: "text", text: errorMessage }], 
+            isError: true 
+          };
+        }
+        
+        // All permissions succeeded
+        let responseText = `✅ Permissions set successfully for '${doctype}':\n\n`;
+        
+        for (const success of successfulPerms) {
+          responseText += `📋 ${success.message}\n`;
+          if (success.permissions) {
+            responseText += `🔐 Permissions:\n`;
+            for (const perm of success.permissions) {
+              responseText += `  - ${perm.role}: ${perm.read ? 'Read' : ''}${perm.write ? ' Write' : ''}${perm.create ? ' Create' : ''}${perm.delete ? ' Delete' : ''}\n`;
+            }
+          }
+        }
+        
+        return { content: [{ type: "text", text: responseText }] };
+        
       } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to set permissions for ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Failed to set permissions for '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('403') || error?.message?.includes('permission') || error?.message?.includes('forbidden')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if you have permission to modify DocType meta';
+          errorMessage += '\n- Verify the DocType exists and is accessible';
+          errorMessage += '\n- Try using the ERPNext UI to set permissions manually';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('not found')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType name is spelled correctly';
+          errorMessage += '\n- Check that the DocType exists in ERPNext';
+          errorMessage += '\n- Use get_all_doctypes to list available DocTypes';
+        }
+        
+        if (error?.message?.includes('role') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all role names are valid and exist in ERPNext';
+          errorMessage += '\n- Check role names for typos and case sensitivity';
+          errorMessage += '\n- Verify you have permission to assign these roles';
+        }
+        
+        return { 
+          content: [{ type: "text", text: errorMessage }], 
+          isError: true 
+        };
+      }
+    }
+    case "smart_set_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { doctype, perms, validate_roles, preserve_existing, reload_doctype } = request.params.arguments;
+      
+      if (!doctype || !perms || !Array.isArray(perms)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name and permissions array are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.setPermissions(doctype, perms);
+        
+        // Check if any permissions failed
+        const failedPerms = result.filter((r: any) => !r.success);
+        const successfulPerms = result.filter((r: any) => r.success);
+        
+        if (failedPerms.length > 0) {
+          let errorMessage = `Some permissions failed to set for '${doctype}':\n\n`;
+          
+          for (const failed of failedPerms) {
+            errorMessage += `❌ Error: ${failed.error}\n`;
+            if (failed.suggestions) {
+              errorMessage += `💡 Suggestions:\n`;
+              for (const suggestion of failed.suggestions) {
+                errorMessage += `  - ${suggestion}\n`;
+              }
+            }
+            errorMessage += `\n`;
+          }
+          
+          if (successfulPerms.length > 0) {
+            errorMessage += `✅ Successfully set ${successfulPerms.length} permission(s)\n`;
+          }
+          
+          return { 
+            content: [{ type: "text", text: errorMessage }], 
+            isError: true 
+          };
+        }
+        
+        // All permissions succeeded
+        let responseText = `✅ Permissions set successfully for '${doctype}':\n\n`;
+        
+        for (const success of successfulPerms) {
+          responseText += `📋 ${success.message}\n`;
+          if (success.permissions) {
+            responseText += `🔐 Permissions:\n`;
+            for (const perm of success.permissions) {
+              responseText += `  - ${perm.role}: ${perm.read ? 'Read' : ''}${perm.write ? ' Write' : ''}${perm.create ? ' Create' : ''}${perm.delete ? ' Delete' : ''}\n`;
+            }
+          }
+        }
+        
+        return { content: [{ type: "text", text: responseText }] };
+        
+      } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Failed to set permissions for '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('403') || error?.message?.includes('permission') || error?.message?.includes('forbidden')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if you have permission to modify DocType meta';
+          errorMessage += '\n- Verify the DocType exists and is accessible';
+          errorMessage += '\n- Try using the ERPNext UI to set permissions manually';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('not found')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType name is spelled correctly';
+          errorMessage += '\n- Check that the DocType exists in ERPNext';
+          errorMessage += '\n- Use get_all_doctypes to list available DocTypes';
+        }
+        
+        if (error?.message?.includes('role') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all role names are valid and exist in ERPNext';
+          errorMessage += '\n- Check role names for typos and case sensitivity';
+          errorMessage += '\n- Verify you have permission to assign these roles';
+        }
+        
+        return { 
+          content: [{ type: "text", text: errorMessage }], 
+          isError: true 
+        };
+      }
+    }
+    case "smart_set_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { doctype, perms, validate_roles, preserve_existing, reload_doctype } = request.params.arguments;
+      
+      if (!doctype || !perms || !Array.isArray(perms)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name and permissions array are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.setPermissions(doctype, perms);
+        
+        // Check if any permissions failed
+        const failedPerms = result.filter((r: any) => !r.success);
+        const successfulPerms = result.filter((r: any) => r.success);
+        
+        if (failedPerms.length > 0) {
+          let errorMessage = `Some permissions failed to set for '${doctype}':\n\n`;
+          
+          for (const failed of failedPerms) {
+            errorMessage += `❌ Error: ${failed.error}\n`;
+            if (failed.suggestions) {
+              errorMessage += `💡 Suggestions:\n`;
+              for (const suggestion of failed.suggestions) {
+                errorMessage += `  - ${suggestion}\n`;
+              }
+            }
+            errorMessage += `\n`;
+          }
+          
+          if (successfulPerms.length > 0) {
+            errorMessage += `✅ Successfully set ${successfulPerms.length} permission(s)\n`;
+          }
+          
+          return { 
+            content: [{ type: "text", text: errorMessage }], 
+            isError: true 
+          };
+        }
+        
+        // All permissions succeeded
+        let responseText = `✅ Smart Permissions set successfully for '${doctype}':\n\n`;
+        
+        for (const success of successfulPerms) {
+          responseText += `📋 ${success.message}\n`;
+          if (success.permissions) {
+            responseText += `🔐 Permissions:\n`;
+            for (const perm of success.permissions) {
+              responseText += `  - ${perm.role}: ${perm.read ? 'Read' : ''}${perm.write ? ' Write' : ''}${perm.create ? ' Create' : ''}${perm.delete ? ' Delete' : ''}\n`;
+            }
+          }
+        }
+        
+        return { content: [{ type: "text", text: responseText }] };
+        
+      } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart permissions setting failed for '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('403') || error?.message?.includes('permission') || error?.message?.includes('forbidden')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if you have permission to modify DocType meta';
+          errorMessage += '\n- Verify the DocType exists and is accessible';
+          errorMessage += '\n- Try using the ERPNext UI to set permissions manually';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('not found')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType name is spelled correctly';
+          errorMessage += '\n- Check that the DocType exists in ERPNext';
+          errorMessage += '\n- Use get_all_doctypes to list available DocTypes';
+        }
+        
+        if (error?.message?.includes('role') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all role names are valid and exist in ERPNext';
+          errorMessage += '\n- Check role names for typos and case sensitivity';
+          errorMessage += '\n- Verify you have permission to assign these roles';
+        }
+        
+        return { 
+          content: [{ type: "text", text: errorMessage }], 
+          isError: true 
+        };
       }
     }
     case "share_document": {

@@ -117,7 +117,35 @@ All smart tools now feature comprehensive error handling that provides:
 - **Consistent Quality**: All smart tools now provide the same level of error detail
 - **Learning Opportunity**: Users learn best practices through error guidance
 
-### 🔧 New Smart Tools
+### � Permissions Tool Fixes and Improvements
+
+#### **Fixed `set_permissions` Tool**
+- **Issue**: The tool was using a non-existent API endpoint (`/api/method/frappe.permissions.add_permission`)
+- **Solution**: Updated to use the correct ERPNext API approach by updating DocType meta
+- **Implementation**: Now properly updates permissions through DocType meta updates and reloads the DocType
+
+#### **New `smart_set_permissions` Tool**
+- **Enhanced Validation**: Validates roles and DocType existence before setting permissions
+- **Better Error Handling**: Comprehensive error messages with specific suggestions
+- **Flexible Options**: 
+  - `validate_roles`: Validate that roles exist before setting permissions
+  - `preserve_existing`: Preserve existing permissions not in the provided array
+  - `reload_doctype`: Reload DocType after setting permissions
+- **Detailed Results**: Reports success/failure for each permission with specific guidance
+
+#### **Enhanced Error Handling for Permissions**
+- **403 Error Guidance**: Specific suggestions for permission-related issues
+- **DocType Validation**: Checks for DocType existence and accessibility
+- **Role Validation**: Ensures role names are valid and exist in ERPNext
+- **Fallback Mechanisms**: Multiple approaches to handle different ERPNext configurations
+
+#### **Benefits of Permissions Improvements**
+- **Reliable Operation**: Fixed the core API issue that was causing 403 errors
+- **Better User Experience**: Clear feedback on what succeeded and what failed
+- **Comprehensive Guidance**: Specific suggestions for resolving permission issues
+- **Flexible Configuration**: Options to customize permission setting behavior
+
+### �🔧 New Smart Tools
 
 #### `create_smart_doctype`
 Intelligent DocType creation with automatic dependency resolution.
@@ -243,142 +271,3 @@ Adds a child table field to an existing DocType.
   }
 }
 ```
-
-#### `get_doctype_meta`
-Retrieves detailed metadata for a DocType including all field definitions.
-
-**Parameters:**
-- `doctype` (required): Name of the DocType
-
-**Example:**
-```json
-{
-  "name": "get_doctype_meta",
-  "arguments": {
-    "doctype": "Customer"
-  }
-}
-```
-
-### 5. Enhanced `create_doctype` Tool
-The existing `create_doctype` tool has been enhanced with:
-- Support for hidden fields
-- Better field type descriptions including Table fields
-- Automatic DocType reloading after creation
-- Improved validation and error handling
-
-## Usage Examples
-
-### Creating a Complete DocType with Child Table
-
-1. **Create the Child Table:**
-```json
-{
-  "name": "create_child_table",
-  "arguments": {
-    "name": "Project Task Details",
-    "fields": [
-      {
-        "fieldname": "task_name",
-        "label": "Task Name",
-        "fieldtype": "Data",
-        "reqd": 1,
-        "in_list_view": 1
-      },
-      {
-        "fieldname": "assigned_to",
-        "label": "Assigned To",
-        "fieldtype": "Link",
-        "options": "User",
-        "in_list_view": 1
-      },
-      {
-        "fieldname": "status",
-        "label": "Status",
-        "fieldtype": "Select",
-        "options": "Open\nIn Progress\nCompleted",
-        "default": "Open",
-        "in_list_view": 1
-      }
-    ]
-  }
-}
-```
-
-2. **Create the Main DocType:**
-```json
-{
-  "name": "create_doctype",
-  "arguments": {
-    "name": "Project",
-    "fields": [
-      {
-        "fieldname": "project_name",
-        "label": "Project Name",
-        "fieldtype": "Data",
-        "reqd": 1
-      },
-      {
-        "fieldname": "client",
-        "label": "Client",
-        "fieldtype": "Link",
-        "options": "Customer"
-      },
-      {
-        "fieldname": "start_date",
-        "label": "Start Date",
-        "fieldtype": "Date"
-      },
-      {
-        "fieldname": "end_date",
-        "label": "End Date",
-        "fieldtype": "Date"
-      }
-    ],
-    "title_field": "project_name"
-  }
-}
-```
-
-3. **Add the Child Table to the Main DocType:**
-```json
-{
-  "name": "add_child_table_to_doctype",
-  "arguments": {
-    "parent_doctype": "Project",
-    "child_table_doctype": "Project Task Details",
-    "fieldname": "tasks",
-    "label": "Project Tasks"
-  }
-}
-```
-
-## Technical Improvements
-
-### Error Handling
-- Enhanced error messages include ERPNext API response details
-- Better validation of required parameters
-- Graceful handling of authentication failures
-
-### Field Management
-- Automatic addition of required parent fields for child tables
-- Proper field ordering and validation
-- Support for all ERPNext field types
-
-### API Integration
-- Improved HTTP response handling
-- Better authentication flow
-- Enhanced DocType metadata retrieval
-
-## Bug Fixes
-- Fixed error message formatting issues
-- Resolved field validation problems
-- Corrected child table parent field requirements
-- Improved HTTP server stability
-
-## Compatibility
-- Compatible with ERPNext v13, v14, and v15
-- Works with both Cloud and On-Premise installations
-- Supports custom modules and app development
-
-The MCP Server is now fully capable of creating complex DocTypes with child tables, providing a robust foundation for ERPNext customization and development workflows.

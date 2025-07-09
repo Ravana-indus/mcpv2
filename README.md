@@ -87,6 +87,7 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 #### Permissions & Sharing
 - `get_permissions` - Get permissions for a DocType
 - `set_permissions` - Set permissions for a DocType
+- `smart_set_permissions` - Set permissions for a DocType with enhanced validation and error handling
 - `share_document` - Share a document with a user
 
 #### Notifications & Automation
@@ -1089,6 +1090,48 @@ Create a webhook with URL validation and security features:
   "condition": "doc.status == 'Approved'",
   "timeout": 10,
   "enabled": 1
+}
+</arguments>
+</use_mcp_tool>
+```
+
+### Smart Permissions Setting
+
+Set permissions for a DocType with enhanced validation and error handling:
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>smart_set_permissions</tool_name>
+<arguments>
+{
+  "doctype": "MC Citizen Issue",
+  "perms": [
+    {
+      "role": "Administrator",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 0
+    },
+    {
+      "role": "User",
+      "read": 1,
+      "write": 0,
+      "create": 0,
+      "delete": 0
+    }
+  ],
+  "validate_roles": true,
+  "preserve_existing": true,
+  "reload_doctype": true
 }
 </arguments>
 </use_mcp_tool>
