@@ -3,6 +3,63 @@
 ## Overview
 This document outlines the improvements made to the ERPNext MCP Server to make it error-free and capable of creating DocTypes and child tables.
 
+## Latest Enhancements (v2.0)
+
+### 🚀 Smart DocType Creation
+- **Automatic Dependency Resolution**: Creates child table DocTypes before the main DocType
+- **Link Field Validation**: Verifies that Link fields reference existing DocTypes
+- **Automatic Permission Setting**: Sets Administrator permissions (RWCD) automatically for new DocTypes
+- **Intelligent Error Recovery**: Provides detailed suggestions when dependencies fail
+
+### 🛠️ Enhanced Error Handling
+- **Detailed Error Information**: Comprehensive error messages with specific suggestions for resolution
+- **Context-Aware Suggestions**: Different suggestions based on error type (400, 403, 409, 500)
+- **Field-Specific Guidance**: Identifies problematic Link and Table fields with specific recommendations
+- **Agent-Friendly Messages**: Error messages designed to help AI agents understand and fix issues
+
+### 🔧 New Smart Tools
+
+#### `create_smart_doctype`
+Intelligent DocType creation with automatic dependency resolution.
+
+**Features:**
+- Automatically creates child table DocTypes when referenced in Table fields
+- Validates Link field references against existing DocTypes
+- Sets Administrator permissions automatically
+- Provides detailed feedback on what was created and any warnings
+- Handles errors gracefully with recovery suggestions
+
+**Example:**
+```json
+{
+  "name": "create_smart_doctype",
+  "arguments": {
+    "name": "Sales Order Enhanced",
+    "fields": [
+      {
+        "fieldname": "customer",
+        "label": "Customer",
+        "fieldtype": "Link",
+        "options": "Customer"
+      },
+      {
+        "fieldname": "items",
+        "label": "Order Items",
+        "fieldtype": "Table",
+        "options": "Sales Order Items"
+      }
+    ]
+  }
+}
+```
+
+**What happens automatically:**
+1. ✅ Creates "Sales Order Items" child table if it doesn't exist
+2. ✅ Validates "Customer" DocType exists
+3. ✅ Sets Administrator permissions (RWCD)
+4. ✅ Creates main DocType
+5. ✅ Reloads DocType to apply changes
+
 ## Key Improvements
 
 ### 1. Enhanced Error Handling

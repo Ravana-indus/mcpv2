@@ -38,6 +38,7 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `get_doctype_fields` - Get fields list for a specific DocType
 - `get_doctype_meta` - Get detailed metadata for a DocType including field definitions
 - `create_doctype` - Create a new DocType in ERPNext with enhanced field support
+- `create_smart_doctype` - Create a new DocType with automatic dependency resolution (child tables and link validation)
 - `create_child_table` - Create a new child table DocType specifically designed for parent-child relationships
 - `add_child_table_to_doctype` - Add a child table field to an existing DocType
 
@@ -91,6 +92,9 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - `manage_integration` - Update/manage an integration service
 
 ### ✨ New in this Version
+- **Smart DocType Creation**: Automatic dependency resolution for child tables and link validation
+- **Enhanced Error Handling**: Detailed error messages with actionable suggestions for the agent
+- **Automatic Permission Setting**: Administrator permissions (RWCD) are automatically set for new DocTypes
 - **Complete Custom Application Development**: Create modules, dashboards, workflows, scripts, webhooks, reports, charts, and webpages
 - **Advanced CRUD Operations**: Full create, read, update, delete, clone, and bulk operations
 - **Export/Import Capabilities**: Export and import documents as JSON
@@ -102,7 +106,6 @@ This is a TypeScript-based MCP server that provides comprehensive integration wi
 - **Notifications & Automation**: Create notifications and scheduled jobs
 - **Documentation Generation**: Auto-generate documentation for DocTypes and workflows
 - **Integration Management**: Register and manage external integrations
-- **Enhanced Error Handling**: Better error messages with detailed API response information
 - **Automatic Field Management**: Required fields are automatically added to DocTypes and child tables
 - **DocType Reloading**: Automatic reloading of DocTypes after creation to apply changes immediately
 
@@ -764,3 +767,87 @@ Ensure your custom objects are properly structured before deployment.
 Track changes and rollback to previous versions when needed.
 
 For detailed information about the improvements and new features, see [IMPROVEMENTS.md](IMPROVEMENTS.md).
+
+## Smart DocType Creation
+
+The `create_smart_doctype` tool provides intelligent DocType creation with automatic dependency resolution:
+
+### Features
+- **Automatic Child Table Creation**: Creates child table DocTypes before the main DocType
+- **Link Validation**: Verifies that Link fields reference existing DocTypes
+- **Automatic Permissions**: Sets Administrator permissions (RWCD) automatically
+- **Detailed Feedback**: Provides comprehensive information about what was created and any warnings
+- **Error Recovery**: Suggests solutions when dependencies fail
+
+### Example: Creating a Sales Order with Items
+
+```
+<use_mcp_tool>
+<server_name>erpnext</server_name>
+<tool_name>create_smart_doctype</tool_name>
+<arguments>
+{
+  "name": "Sales Order Enhanced",
+  "module": "Custom",
+  "fields": [
+    {
+      "fieldname": "customer",
+      "label": "Customer",
+      "fieldtype": "Link",
+      "options": "Customer",
+      "reqd": 1
+    },
+    {
+      "fieldname": "order_date",
+      "label": "Order Date",
+      "fieldtype": "Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "items",
+      "label": "Order Items",
+      "fieldtype": "Table",
+      "options": "Sales Order Items",
+      "reqd": 1
+    },
+    {
+      "fieldname": "delivery_address",
+      "label": "Delivery Address",
+      "fieldtype": "Link",
+      "options": "Address",
+      "reqd": 0
+    }
+  ]
+}
+</arguments>
+</use_mcp_tool>
+```
+
+**What happens automatically:**
+1. ✅ Creates "Sales Order Items" child table if it doesn't exist
+2. ✅ Validates that "Customer" and "Address" DocTypes exist
+3. ✅ Sets Administrator permissions (Read, Write, Create, Delete)
+4. ✅ Creates the main "Sales Order Enhanced" DocType
+5. ✅ Reloads the DocType to apply all changes
+
+### Error Handling
+
+The smart doctype creation provides detailed error information:
+
+- **Missing Dependencies**: Lists which DocTypes need to be created first
+- **Permission Issues**: Suggests checking Administrator role
+- **Field Validation**: Identifies invalid field configurations
+- **Recovery Suggestions**: Provides specific steps to resolve issues
+
+### When to Use Smart vs Basic Creation
+
+- **Use `create_smart_doctype`** when:
+  - Creating DocTypes with child tables
+  - Referencing other DocTypes with Link fields
+  - Want automatic permission setting
+  - Need detailed feedback and error recovery
+
+- **Use `create_doctype`** when:
+  - Creating simple DocTypes without dependencies
+  - Want manual control over the creation process
+  - Creating child table DocTypes individually
