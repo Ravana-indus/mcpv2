@@ -105,6 +105,12 @@ class ERPNextClient {
   // Create a new document
   async createDocument(doctype: string, doc: Record<string, any>): Promise<any> {
     try {
+      // --- Auto-fill or correct required fields for certain core DocTypes ---
+      if (doctype === "Note" && !doc.title) {
+        doc.title = (doc.content || "Untitled").substring(0, 100) || "Untitled";
+      }
+      // --------------------------------------------------------------------
+
       const response = await this.axiosInstance.post(`/api/resource/${doctype}`, {
         data: doc
       });
@@ -129,11 +135,10 @@ class ERPNextClient {
   // Run a report
   async runReport(reportName: string, filters?: Record<string, any>): Promise<any> {
     try {
-      const response = await this.axiosInstance.get(`/api/method/frappe.desk.query_report.run`, {
-        params: {
-          report_name: reportName,
-          filters: filters ? JSON.stringify(filters) : undefined
-        }
+      // Switch to POST – more reliable and avoids URL length limits
+      const response = await this.axiosInstance.post(`/api/method/frappe.desk.query_report.run`, {
+        report_name: reportName,
+        filters: filters || {}
       });
       return response.data.message;
     } catch (error: any) {
@@ -344,7 +349,14 @@ class ERPNextClient {
   // Create a new Module
   async createModule(moduleDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Module Def', { data: moduleDef });
+      // Ensure required defaults so the DocType is writable even in production mode
+      const moduleDoc = {
+        doctype: "Module Def",
+        custom: moduleDef.custom !== undefined ? moduleDef.custom : 1,
+        app_name: moduleDef.app_name || "Custom",
+        ...moduleDef
+      };
+      const response = await this.axiosInstance.post('/api/resource/Module Def', { data: moduleDoc });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Module: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -421,10 +433,10 @@ class ERPNextClient {
     }
   }
 
-  // Create a new Chart
+  // Create a new Chart (Dashboard Chart)
   async createChart(chartDef: any): Promise<any> {
     try {
-      const response = await this.axiosInstance.post('/api/resource/Chart', { data: chartDef });
+      const response = await this.axiosInstance.post('/api/resource/Dashboard Chart', { data: chartDef });
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Chart: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
@@ -500,9 +512,20 @@ class ERPNextClient {
 
   // Bulk delete
   async bulkDeleteDocuments(doctype: string, names: string[]): Promise<any[]> {
-    const results = [];
+    const results: any[] = [];
     for (const name of names) {
-      results.push(await this.deleteDocument(doctype, name));
+      try {
+        // Skip if document no longer exists
+        const exists = await this.axiosInstance.get(`/api/resource/${doctype}/${name}`).then(() => true).catch(() => false);
+        if (!exists) {
+          results.push({ name, skipped: true, reason: 'Not found' });
+          continue;
+        }
+        await this.deleteDocument(doctype, name);
+        results.push({ name, deleted: true });
+      } catch (error: any) {
+        results.push({ name, error: error?.response?.data?.message || error?.message || 'Unknown error' });
+      }
     }
     return results;
   }
@@ -517,11 +540,20 @@ class ERPNextClient {
   async getPermissions(doctype: string): Promise<any> {
     return this.getDocTypeMeta(doctype); // Permissions are part of meta
   }
-  async setPermissions(doctype: string, perms: any): Promise<any> {
-    // Update DocType meta with new permissions
-    const meta = await this.getDocTypeMeta(doctype);
-    meta.permissions = perms;
-    return this.updateDocument('DocType', doctype, meta);
+  async setPermissions(doctype: string, perms: any[]): Promise<any> {
+    const results: any[] = [];
+    for (const perm of perms) {
+      try {
+        const response = await this.axiosInstance.post('/api/method/frappe.permissions.add_permission', {
+          doctype,
+          ...perm
+        });
+        results.push(response.data.message || perm);
+      } catch (error: any) {
+        results.push({ perm, error: error?.response?.data?.message || error?.message || 'Unknown error' });
+      }
+    }
+    return results;
   }
   async shareDocument(doctype: string, name: string, user: string, permlevel: number): Promise<any> {
     // Frappe has a Share DocType
@@ -571,12 +603,23 @@ class ERPNextClient {
     return this.getDocList('Version', { ref_doctype: doctype, docname: name });
   }
   async rollbackDocument(doctype: string, name: string, version_id: string): Promise<any> {
-    // Not natively supported, but could fetch version and update
-    const version = await this.getDocument('Version', version_id);
-    if (version && version.data) {
-      return this.updateDocument(doctype, name, JSON.parse(version.data));
+    try {
+      const response = await this.axiosInstance.post('/api/method/frappe.desk.version.rollback', {
+        doc_type: doctype,
+        docname: name,
+        version: version_id
+      });
+      return response.data.message;
+    } catch (error: any) {
+      // Fallback – attempt naive diff-based rollback
+      try {
+        const version = await this.getDocument('Version', version_id);
+        if (version && version.data) {
+          return this.updateDocument(doctype, name, JSON.parse(version.data));
+        }
+      } catch { /* ignore */ }
+      throw new Error(`Rollback failed: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
-    throw new Error('Version not found or invalid');
   }
 
   // Scaffolding (simulate, return structure)
