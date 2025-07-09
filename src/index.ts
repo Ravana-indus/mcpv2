@@ -23,6 +23,7 @@ import {
   ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
+import process from 'node:process';
 
 // ERPNext API client configuration
 class ERPNextClient {
@@ -338,6 +339,302 @@ class ERPNextClient {
       // This is not critical, so we don't throw
       return null;
     }
+  }
+
+  // Create a new Module
+  async createModule(moduleDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Module Def', { data: moduleDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Module: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Dashboard
+  async createDashboard(dashboardDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Dashboard', { data: dashboardDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Dashboard: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Workflow
+  async createWorkflow(workflowDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Workflow', { data: workflowDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Workflow: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Server Script
+  async createServerScript(scriptDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Server Script', { data: scriptDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Server Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Client Script
+  async createClientScript(scriptDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Client Script', { data: scriptDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Client Script: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Webhook
+  async createWebhook(webhookDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Webhook', { data: webhookDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Webhook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Hook (Custom App Hook DocType, if available)
+  async createHook(hookDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Hook', { data: hookDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Hook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Report
+  async createReport(reportDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Report', { data: reportDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Report: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Chart
+  async createChart(chartDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Chart', { data: chartDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Chart: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Create a new Web Page
+  async createWebPage(webPageDef: any): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post('/api/resource/Web Page', { data: webPageDef });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create Web Page: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Delete a document
+  async deleteDocument(doctype: string, name: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.delete(`/api/resource/${doctype}/${name}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to delete ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Clone a document (fetch, remove unique fields, create new)
+  async cloneDocument(doctype: string, name: string, overrides: Record<string, any> = {}): Promise<any> {
+    const doc = await this.getDocument(doctype, name);
+    // Remove unique/ID fields
+    delete doc.name;
+    delete doc.creation;
+    delete doc.modified;
+    delete doc.owner;
+    delete doc.idx;
+    // Apply overrides
+    Object.assign(doc, overrides);
+    return this.createDocument(doctype, doc);
+  }
+
+  // Export documents (as JSON)
+  async exportDocuments(doctype: string, filters?: Record<string, any>): Promise<any> {
+    const docs = await this.getDocList(doctype, filters);
+    return JSON.stringify(docs, null, 2);
+  }
+
+  // Import documents (from JSON)
+  async importDocuments(doctype: string, docs: any[]): Promise<any[]> {
+    const results = [];
+    for (const doc of docs) {
+      results.push(await this.createDocument(doctype, doc));
+    }
+    return results;
+  }
+
+  // Bulk create
+  async bulkCreateDocuments(doctype: string, docs: any[]): Promise<any[]> {
+    const results = [];
+    for (const doc of docs) {
+      results.push(await this.createDocument(doctype, doc));
+    }
+    return results;
+  }
+
+  // Bulk update
+  async bulkUpdateDocuments(doctype: string, updates: {name: string, data: any}[]): Promise<any[]> {
+    const results = [];
+    for (const upd of updates) {
+      results.push(await this.updateDocument(doctype, upd.name, upd.data));
+    }
+    return results;
+  }
+
+  // Bulk delete
+  async bulkDeleteDocuments(doctype: string, names: string[]): Promise<any[]> {
+    const results = [];
+    for (const name of names) {
+      results.push(await this.deleteDocument(doctype, name));
+    }
+    return results;
+  }
+
+  // Search documents (advanced filtering)
+  async searchDocuments(doctype: string, query: Record<string, any>): Promise<any[]> {
+    // For now, use filters as query
+    return this.getDocList(doctype, query);
+  }
+
+  // Permissions (get/set/share)
+  async getPermissions(doctype: string): Promise<any> {
+    return this.getDocTypeMeta(doctype); // Permissions are part of meta
+  }
+  async setPermissions(doctype: string, perms: any): Promise<any> {
+    // Update DocType meta with new permissions
+    const meta = await this.getDocTypeMeta(doctype);
+    meta.permissions = perms;
+    return this.updateDocument('DocType', doctype, meta);
+  }
+  async shareDocument(doctype: string, name: string, user: string, permlevel: number): Promise<any> {
+    // Frappe has a Share DocType
+    return this.createDocument('DocShare', {
+      share_doctype: doctype,
+      share_name: name,
+      user,
+      perm: permlevel
+    });
+  }
+
+  // --- [ERPNextClient: Add more advanced methods] ---
+  // Validate DocType/Workflow/Script (basic: check required fields)
+  async validateDocType(def: any): Promise<any> {
+    if (!def.name || !def.fields || !Array.isArray(def.fields)) {
+      throw new Error('Invalid DocType: missing name or fields');
+    }
+    return { valid: true };
+  }
+  async validateWorkflow(def: any): Promise<any> {
+    if (!def.workflow_name || !def.document_type || !def.states || !def.transitions) {
+      throw new Error('Invalid Workflow: missing required fields');
+    }
+    return { valid: true };
+  }
+  async validateScript(def: any): Promise<any> {
+    if (!def.script) {
+      throw new Error('Invalid Script: missing script code');
+    }
+    return { valid: true };
+  }
+
+  // Preview script (dry-run, only syntax check here)
+  async previewScript(def: any): Promise<any> {
+    try {
+      // Only check for syntax errors (very basic, not real execution)
+      new Function(def.script);
+      return { valid: true, message: 'No syntax errors' };
+    } catch (e: any) {
+      return { valid: false, error: e.message };
+    }
+  }
+
+  // Versioning/history (if supported)
+  async getDocumentHistory(doctype: string, name: string): Promise<any> {
+    // Frappe keeps a Version DocType
+    return this.getDocList('Version', { ref_doctype: doctype, docname: name });
+  }
+  async rollbackDocument(doctype: string, name: string, version_id: string): Promise<any> {
+    // Not natively supported, but could fetch version and update
+    const version = await this.getDocument('Version', version_id);
+    if (version && version.data) {
+      return this.updateDocument(doctype, name, JSON.parse(version.data));
+    }
+    throw new Error('Version not found or invalid');
+  }
+
+  // Scaffolding (simulate, return structure)
+  async scaffoldApp(app_name: string): Promise<any> {
+    return { app_name, structure: ['modules/', 'public/', 'config/', 'hooks.py', 'README.md'] };
+  }
+  async scaffoldModule(module_name: string): Promise<any> {
+    return { module_name, structure: ['doctype/', 'dashboard/', 'workflow/', 'report/', 'page/'] };
+  }
+
+  // UI schema generation (basic)
+  async generateFormSchema(doctype: string): Promise<any> {
+    const meta = await this.getDocTypeMeta(doctype);
+    return { fields: meta.fields || [] };
+  }
+  async generateDashboardSchema(dashboard_name: string): Promise<any> {
+    const dashboard = await this.getDocument('Dashboard', dashboard_name);
+    return { charts: dashboard.charts || [] };
+  }
+
+  // Lint/test script (basic JS lint)
+  async lintScript(def: any): Promise<any> {
+    try {
+      new Function(def.script);
+      return { valid: true };
+    } catch (e: any) {
+      return { valid: false, error: e.message };
+    }
+  }
+  async testScript(def: any): Promise<any> {
+    // Only syntax check for now
+    return this.lintScript(def);
+  }
+
+  // Notifications/alerts
+  async createNotification(notificationDef: any): Promise<any> {
+    return this.createDocument('Notification', notificationDef);
+  }
+  async createScheduledJob(jobDef: any): Promise<any> {
+    return this.createDocument('Scheduled Job Type', jobDef);
+  }
+
+  // Documentation generation (basic)
+  async generateDoctypeDocs(doctype: string): Promise<any> {
+    const meta = await this.getDocTypeMeta(doctype);
+    return { doc: `# ${doctype}\n\nFields:\n${(meta.fields||[]).map((f: any)=>`- ${f.fieldname} (${f.fieldtype})`).join('\n')}` };
+  }
+  async generateWorkflowDocs(workflow_name: string): Promise<any> {
+    const workflow = await this.getDocument('Workflow', workflow_name);
+    return { doc: `# Workflow: ${workflow.workflow_name}\n\nStates:\n${(workflow.states||[]).map((s: any)=>`- ${s.state}`).join('\n')}` };
+  }
+
+  // Integrations (register/manage)
+  async registerIntegration(integrationDef: any): Promise<any> {
+    return this.createDocument('Integration Service', integrationDef);
+  }
+  async manageIntegration(name: string, data: any): Promise<any> {
+    return this.updateDocument('Integration Service', name, data);
   }
 }
 
@@ -759,6 +1056,480 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["doctype"]
         }
+      },
+      {
+        name: "create_module",
+        description: "Create a new Module in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module_name: { type: "string", description: "Name of the module" },
+            app_name: { type: "string", description: "App name (optional)" },
+            custom: { type: "number", description: "Is custom module (1/0, optional)" }
+          },
+          required: ["module_name"]
+        }
+      },
+      {
+        name: "create_dashboard",
+        description: "Create a new Dashboard in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module: { type: "string", description: "Module name" },
+            name: { type: "string", description: "Dashboard name" },
+            charts: { type: "array", items: { type: "object" }, description: "Charts (optional)" }
+          },
+          required: ["name", "module"]
+        }
+      },
+      {
+        name: "create_workflow",
+        description: "Create a new Workflow in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            document_type: { type: "string", description: "Target DocType" },
+            workflow_name: { type: "string", description: "Workflow name" },
+            states: { type: "array", items: { type: "object" }, description: "States" },
+            transitions: { type: "array", items: { type: "object" }, description: "Transitions" }
+          },
+          required: ["document_type", "workflow_name", "states", "transitions"]
+        }
+      },
+      {
+        name: "create_server_script",
+        description: "Create a new Server Script in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script_type: { type: "string", description: "Script Type (DocType Event, API, etc.)" },
+            script: { type: "string", description: "Script code" },
+            reference_doctype: { type: "string", description: "Reference DocType (optional)" },
+            name: { type: "string", description: "Script name (optional)" }
+          },
+          required: ["script_type", "script"]
+        }
+      },
+      {
+        name: "create_client_script",
+        description: "Create a new Client Script in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            script: { type: "string", description: "Script code" },
+            dt: { type: "string", description: "Target DocType" },
+            view: { type: "string", description: "View (Form/List, optional)" },
+            enabled: { type: "number", description: "Enabled (1/0, optional)" }
+          },
+          required: ["script", "dt"]
+        }
+      },
+      {
+        name: "create_webhook",
+        description: "Create a new Webhook in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            webhook_doctype: { type: "string", description: "Target DocType" },
+            webhook_url: { type: "string", description: "Webhook URL" },
+            condition: { type: "string", description: "Condition (optional)" },
+            request_headers: { type: "object", description: "Request headers (optional)" }
+          },
+          required: ["webhook_doctype", "webhook_url"]
+        }
+      },
+      {
+        name: "create_hook",
+        description: "Create a new Hook (custom app hook) in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            hook_type: { type: "string", description: "Hook type (e.g., doc_events, scheduler_events)" },
+            value: { type: "string", description: "Hook value (Python path, etc.)" },
+            app_name: { type: "string", description: "App name (optional)" }
+          },
+          required: ["hook_type", "value"]
+        }
+      },
+      {
+        name: "create_report",
+        description: "Create a new Report in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            report_name: { type: "string", description: "Report name" },
+            ref_doctype: { type: "string", description: "Reference DocType" },
+            report_type: { type: "string", description: "Report type (Query, Script, etc.)" },
+            is_standard: { type: "string", description: "Is standard (Yes/No, optional)" },
+            json: { type: "object", description: "Report JSON (optional)" }
+          },
+          required: ["report_name", "ref_doctype", "report_type"]
+        }
+      },
+      {
+        name: "create_chart",
+        description: "Create a new Chart in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chart_name: { type: "string", description: "Chart name" },
+            chart_type: { type: "string", description: "Chart type (Bar, Line, etc.)" },
+            document_type: { type: "string", description: "Target DocType" },
+            data: { type: "object", description: "Chart data (optional)" }
+          },
+          required: ["chart_name", "chart_type", "document_type"]
+        }
+      },
+      {
+        name: "create_webpage",
+        description: "Create a new Web Page in ERPNext",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Web Page title" },
+            route: { type: "string", description: "Route (URL path)" },
+            content: { type: "string", description: "HTML content" },
+            published: { type: "number", description: "Published (1/0, optional)" }
+          },
+          required: ["title", "route", "content"]
+        }
+      },
+      {
+        name: "delete_document",
+        description: "Delete a document by doctype and name",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "clone_document",
+        description: "Clone a document (optionally override fields)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID to clone" },
+            overrides: { type: "object", description: "Fields to override (optional)" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "export_documents",
+        description: "Export documents as JSON",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            filters: { type: "object", description: "Filters (optional)" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "import_documents",
+        description: "Import documents from JSON",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            docs: { type: "array", items: { type: "object" }, description: "Array of documents" }
+          },
+          required: ["doctype", "docs"]
+        }
+      },
+      {
+        name: "bulk_create_documents",
+        description: "Bulk create documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            docs: { type: "array", items: { type: "object" }, description: "Array of documents" }
+          },
+          required: ["doctype", "docs"]
+        }
+      },
+      {
+        name: "bulk_update_documents",
+        description: "Bulk update documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            updates: { type: "array", items: { type: "object", properties: { name: { type: "string" }, data: { type: "object" } }, required: ["name", "data"] }, description: "Array of updates" }
+          },
+          required: ["doctype", "updates"]
+        }
+      },
+      {
+        name: "bulk_delete_documents",
+        description: "Bulk delete documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            names: { type: "array", items: { type: "string" }, description: "Array of document names/IDs" }
+          },
+          required: ["doctype", "names"]
+        }
+      },
+      {
+        name: "search_documents",
+        description: "Advanced search for documents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            query: { type: "object", description: "Query object (field filters)" }
+          },
+          required: ["doctype", "query"]
+        }
+      },
+      {
+        name: "get_permissions",
+        description: "Get permissions for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "set_permissions",
+        description: "Set permissions for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            perms: { type: "array", items: { type: "object" }, description: "Permissions array" }
+          },
+          required: ["doctype", "perms"]
+        }
+      },
+      {
+        name: "share_document",
+        description: "Share a document with a user",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" },
+            user: { type: "string", description: "User email/ID" },
+            permlevel: { type: "number", description: "Permission level (1=read, 2=write, etc.)" }
+          },
+          required: ["doctype", "name", "user", "permlevel"]
+        }
+      },
+      {
+        name: "validate_doctype",
+        description: "Validate a DocType definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "DocType definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "validate_workflow",
+        description: "Validate a Workflow definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Workflow definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "validate_script",
+        description: "Validate a script definition (basic checks)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "preview_script",
+        description: "Preview a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "get_document_history",
+        description: "Get version history for a document",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" }
+          },
+          required: ["doctype", "name"]
+        }
+      },
+      {
+        name: "rollback_document",
+        description: "Rollback a document to a previous version",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" },
+            name: { type: "string", description: "Document name/ID" },
+            version_id: { type: "string", description: "Version document ID" }
+          },
+          required: ["doctype", "name", "version_id"]
+        }
+      },
+      {
+        name: "scaffold_app",
+        description: "Scaffold a new custom app (returns structure)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            app_name: { type: "string", description: "App name" }
+          },
+          required: ["app_name"]
+        }
+      },
+      {
+        name: "scaffold_module",
+        description: "Scaffold a new module (returns structure)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            module_name: { type: "string", description: "Module name" }
+          },
+          required: ["module_name"]
+        }
+      },
+      {
+        name: "generate_form_schema",
+        description: "Generate a form schema for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "generate_dashboard_schema",
+        description: "Generate a dashboard schema for a Dashboard",
+        inputSchema: {
+          type: "object",
+          properties: {
+            dashboard_name: { type: "string", description: "Dashboard name" }
+          },
+          required: ["dashboard_name"]
+        }
+      },
+      {
+        name: "lint_script",
+        description: "Lint a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "test_script",
+        description: "Test a script (syntax check only)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            def: { type: "object", description: "Script definition" }
+          },
+          required: ["def"]
+        }
+      },
+      {
+        name: "create_notification",
+        description: "Create a notification/alert",
+        inputSchema: {
+          type: "object",
+          properties: {
+            notificationDef: { type: "object", description: "Notification definition" }
+          },
+          required: ["notificationDef"]
+        }
+      },
+      {
+        name: "create_scheduled_job",
+        description: "Create a scheduled job",
+        inputSchema: {
+          type: "object",
+          properties: {
+            jobDef: { type: "object", description: "Scheduled job definition" }
+          },
+          required: ["jobDef"]
+        }
+      },
+      {
+        name: "generate_doctype_docs",
+        description: "Generate documentation for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: { type: "string", description: "DocType name" }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "generate_workflow_docs",
+        description: "Generate documentation for a Workflow",
+        inputSchema: {
+          type: "object",
+          properties: {
+            workflow_name: { type: "string", description: "Workflow name" }
+          },
+          required: ["workflow_name"]
+        }
+      },
+      {
+        name: "register_integration",
+        description: "Register a new integration service",
+        inputSchema: {
+          type: "object",
+          properties: {
+            integrationDef: { type: "object", description: "Integration definition" }
+          },
+          required: ["integrationDef"]
+        }
+      },
+      {
+        name: "manage_integration",
+        description: "Update/manage an integration service",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Integration Service name/ID" },
+            data: { type: "object", description: "Update data" }
+          },
+          required: ["name", "data"]
+        }
       }
     ]
   };
@@ -767,7 +1538,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 /**
  * Handler for tool calls.
  */
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   switch (request.params.name) {
     case "get_documents": {
       if (!erpnext.isAuthenticated()) {
@@ -1231,6 +2002,383 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           isError: true
         };
       }
+    }
+
+    case "create_module": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const moduleDef = request.params.arguments;
+      try {
+        const result = await erpnext.createModule(moduleDef);
+        return { content: [{ type: "text", text: `Created Module: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Module: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_dashboard": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const dashboardDef = request.params.arguments;
+      try {
+        const result = await erpnext.createDashboard(dashboardDef);
+        return { content: [{ type: "text", text: `Created Dashboard: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Dashboard: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_workflow": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const workflowDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWorkflow(workflowDef);
+        return { content: [{ type: "text", text: `Created Workflow: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Workflow: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_server_script": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const serverScriptDef = request.params.arguments;
+      try {
+        const result = await erpnext.createServerScript(serverScriptDef);
+        return { content: [{ type: "text", text: `Created Server Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Server Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_client_script": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const clientScriptDef = request.params.arguments;
+      try {
+        const result = await erpnext.createClientScript(clientScriptDef);
+        return { content: [{ type: "text", text: `Created Client Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Client Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_webhook": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const webhookDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWebhook(webhookDef);
+        return { content: [{ type: "text", text: `Created Webhook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Webhook: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_hook": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const hookDef = request.params.arguments;
+      try {
+        const result = await erpnext.createHook(hookDef);
+        return { content: [{ type: "text", text: `Created Hook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Hook: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_report": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const reportDef = request.params.arguments;
+      try {
+        const result = await erpnext.createReport(reportDef);
+        return { content: [{ type: "text", text: `Created Report: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Report: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_chart": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const chartDef = request.params.arguments;
+      try {
+        const result = await erpnext.createChart(chartDef);
+        return { content: [{ type: "text", text: `Created Chart: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Chart: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "create_webpage": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const webPageDef = request.params.arguments;
+      try {
+        const result = await erpnext.createWebPage(webPageDef);
+        return { content: [{ type: "text", text: `Created Web Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to create Web Page: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+
+    case "delete_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name } = request.params.arguments;
+      try {
+        const result = await erpnext.deleteDocument(doctype, name);
+        return { content: [{ type: "text", text: `Deleted ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to delete ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "clone_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name, overrides } = request.params.arguments;
+      try {
+        const result = await erpnext.cloneDocument(doctype, name, overrides);
+        return { content: [{ type: "text", text: `Cloned ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to clone ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "export_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, filters } = request.params.arguments;
+      try {
+        const result = await erpnext.exportDocuments(doctype, filters);
+        return { content: [{ type: "text", text: result }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to export ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "import_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, docs } = request.params.arguments;
+      try {
+        const result = await erpnext.importDocuments(doctype, docs);
+        return { content: [{ type: "text", text: `Imported ${result.length} documents to ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to import to ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_create_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, docs } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkCreateDocuments(doctype, docs);
+        return { content: [{ type: "text", text: `Bulk created ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk create in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_update_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, updates } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkUpdateDocuments(doctype, updates);
+        return { content: [{ type: "text", text: `Bulk updated ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk update in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "bulk_delete_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, names } = request.params.arguments;
+      try {
+        const result = await erpnext.bulkDeleteDocuments(doctype, names);
+        return { content: [{ type: "text", text: `Bulk deleted ${result.length} documents in ${doctype}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to bulk delete in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "search_documents": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, query } = request.params.arguments;
+      try {
+        const result = await erpnext.searchDocuments(doctype, query);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to search in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "get_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype } = request.params.arguments;
+      try {
+        const result = await erpnext.getPermissions(doctype);
+        return { content: [{ type: "text", text: JSON.stringify(result.permissions || result.perm || [], null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to get permissions for ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "set_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, perms } = request.params.arguments;
+      try {
+        const result = await erpnext.setPermissions(doctype, perms);
+        return { content: [{ type: "text", text: `Set permissions for ${doctype}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to set permissions for ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "share_document": {
+      if (!erpnext.isAuthenticated()) {
+        return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
+      }
+      const { doctype, name, user, permlevel } = request.params.arguments;
+      try {
+        const result = await erpnext.shareDocument(doctype, name, user, permlevel);
+        return { content: [{ type: "text", text: `Shared ${doctype} ${name} with ${user} (permlevel ${permlevel})\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to share ${doctype} ${name}: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "validate_doctype": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateDocType(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid DocType: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "validate_workflow": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateWorkflow(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid Workflow: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "validate_script": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.validateScript(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Invalid Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "preview_script": {
+      const { def } = request.params.arguments;
+      try {
+        const result = await erpnext.previewScript(def);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Script preview error: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "get_document_history": {
+      const { doctype, name } = request.params.arguments;
+      try {
+        const result = await erpnext.getDocumentHistory(doctype, name);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to get history: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "rollback_document": {
+      const { doctype, name, version_id } = request.params.arguments;
+      try {
+        const result = await erpnext.rollbackDocument(doctype, name, version_id);
+        return { content: [{ type: "text", text: `Rolled back ${doctype} ${name} to version ${version_id}\n\n${JSON.stringify(result, null, 2)}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to rollback: ${error?.message || 'Unknown error'}` }], isError: true };
+      }
+    }
+    case "scaffold_app": {
+      const { app_name } = request.params.arguments;
+      const result = await erpnext.scaffoldApp(app_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "scaffold_module": {
+      const { module_name } = request.params.arguments;
+      const result = await erpnext.scaffoldModule(module_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_form_schema": {
+      const { doctype } = request.params.arguments;
+      const result = await erpnext.generateFormSchema(doctype);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_dashboard_schema": {
+      const { dashboard_name } = request.params.arguments;
+      const result = await erpnext.generateDashboardSchema(dashboard_name);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "lint_script": {
+      const { def } = request.params.arguments;
+      const result = await erpnext.lintScript(def);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "test_script": {
+      const { def } = request.params.arguments;
+      const result = await erpnext.testScript(def);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "create_notification": {
+      const { notificationDef } = request.params.arguments;
+      const result = await erpnext.createNotification(notificationDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "create_scheduled_job": {
+      const { jobDef } = request.params.arguments;
+      const result = await erpnext.createScheduledJob(jobDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "generate_doctype_docs": {
+      const { doctype } = request.params.arguments;
+      const result = await erpnext.generateDoctypeDocs(doctype);
+      return { content: [{ type: "text", text: result.doc }] };
+    }
+    case "generate_workflow_docs": {
+      const { workflow_name } = request.params.arguments;
+      const result = await erpnext.generateWorkflowDocs(workflow_name);
+      return { content: [{ type: "text", text: result.doc }] };
+    }
+    case "register_integration": {
+      const { integrationDef } = request.params.arguments;
+      const result = await erpnext.registerIntegration(integrationDef);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+    case "manage_integration": {
+      const { name, data } = request.params.arguments;
+      const result = await erpnext.manageIntegration(name, data);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
       
     default:
