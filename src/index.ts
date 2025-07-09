@@ -274,9 +274,91 @@ class ERPNextClient {
         data: doctype
       });
 
-      return response.data.data;
+      const createdDocType = response.data.data;
+
+      // Set default permissions for Administrator (RWCD - Read, Write, Create, Delete)
+      try {
+        const adminPermissions = [
+          {
+            role: "Administrator",
+            permlevel: 0,
+            read: 1,
+            write: 1,
+            create: 1,
+            delete: 1,
+            submit: 0,
+            cancel: 0,
+            amend: 0,
+            report: 0,
+            export: 1,
+            share: 1,
+            print: 1,
+            email: 1
+          }
+        ];
+
+        await this.setPermissions(createdDocType.name, adminPermissions);
+      } catch (permError: any) {
+        console.warn(`Failed to set default permissions for ${createdDocType.name}: ${permError?.message || 'Unknown error'}`);
+        // Don't fail the entire operation if permissions fail
+      }
+
+      return createdDocType;
     } catch (error: any) {
-      throw new Error(`Failed to create DocType: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      // Enhanced error handling with detailed information
+      const errorDetails: {
+        message: string;
+        status?: number;
+        statusText?: string;
+        data?: any;
+        doctypeName: string;
+        fields: number;
+        suggestions: string[];
+      } = {
+        message: error?.response?.data?.message || error?.message || 'Unknown error',
+        status: error?.response?.status,
+        statusText: error?.response?.statusText,
+        data: error?.response?.data,
+        doctypeName: doctypeDefinition.name,
+        fields: doctypeDefinition.fields?.length || 0,
+        suggestions: []
+      };
+
+      // Provide specific suggestions based on error type
+      if (error?.response?.status === 400) {
+        errorDetails.suggestions.push("Check if the DocType name is valid and doesn't contain special characters");
+        errorDetails.suggestions.push("Ensure all required fields have proper fieldtypes");
+        errorDetails.suggestions.push("Verify that Link fields reference existing DocTypes");
+        errorDetails.suggestions.push("Check that Table fields reference existing child table DocTypes");
+      } else if (error?.response?.status === 409) {
+        errorDetails.suggestions.push("DocType already exists - try a different name");
+        errorDetails.suggestions.push("Check if the DocType was created in a previous attempt");
+      } else if (error?.response?.status === 403) {
+        errorDetails.suggestions.push("Insufficient permissions - ensure you have Administrator role");
+        errorDetails.suggestions.push("Check if the ERPNext instance allows custom DocType creation");
+      } else if (error?.response?.status === 500) {
+        errorDetails.suggestions.push("Server error - check ERPNext logs for more details");
+        errorDetails.suggestions.push("Verify that all referenced DocTypes exist");
+        errorDetails.suggestions.push("Ensure the module exists or can be created");
+      }
+
+      // Check for specific field-related errors
+      if (doctypeDefinition.fields) {
+        const linkFields = doctypeDefinition.fields.filter((f: any) => f.fieldtype === 'Link' && f.options);
+        const tableFields = doctypeDefinition.fields.filter((f: any) => f.fieldtype === 'Table' && f.options);
+        
+        if (linkFields.length > 0) {
+          errorDetails.suggestions.push("Ensure all Link fields reference existing DocTypes: " + 
+            linkFields.map((f: any) => `${f.fieldname} -> ${f.options}`).join(', '));
+        }
+        
+        if (tableFields.length > 0) {
+          errorDetails.suggestions.push("Ensure all Table fields reference existing child table DocTypes: " + 
+            tableFields.map((f: any) => `${f.fieldname} -> ${f.options}`).join(', '));
+        }
+      }
+
+      throw new Error(`Failed to create DocType '${doctypeDefinition.name}': ${JSON.stringify(errorDetails, null, 2)}`);
     }
   }
 
@@ -343,6 +425,162 @@ class ERPNextClient {
       console.warn(`Failed to reload DocType ${doctype}: ${error?.message || 'Unknown error'}`);
       // This is not critical, so we don't throw
       return null;
+    }
+  }
+
+  // Check if a DocType exists
+  async docTypeExists(doctype: string): Promise<boolean> {
+    try {
+      await this.getDocTypeMeta(doctype);
+      return true;
+    } catch (error: any) {
+      return false;
+    }
+  }
+
+  // Resolve dependencies for a DocType definition
+  private resolveDependencies(doctypeDefinition: any): { dependencies: any[], mainDocType: any } {
+    const dependencies: any[] = [];
+    const mainDocType = { ...doctypeDefinition };
+    
+    if (!mainDocType.fields) {
+      return { dependencies, mainDocType };
+    }
+
+    // Extract Link and Table field dependencies
+    const linkFields = mainDocType.fields.filter((f: any) => f.fieldtype === 'Link' && f.options);
+    const tableFields = mainDocType.fields.filter((f: any) => f.fieldtype === 'Table' && f.options);
+
+    // Create child table dependencies
+    for (const tableField of tableFields) {
+      const childTableName = tableField.options;
+      const childTableDef = {
+        name: childTableName,
+        module: mainDocType.module || "Custom",
+        is_table: 1,
+        is_child_table: 1,
+        custom: 1,
+        fields: tableField.child_table_fields || [
+          {
+            fieldname: "item_code",
+            label: "Item Code",
+            fieldtype: "Data",
+            reqd: 1
+          },
+          {
+            fieldname: "qty",
+            label: "Quantity",
+            fieldtype: "Float",
+            reqd: 1,
+            default: 1
+          }
+        ]
+      };
+      
+      dependencies.push({
+        type: 'child_table',
+        definition: childTableDef,
+        referencedBy: tableField.fieldname
+      });
+    }
+
+    // Note: Link fields reference existing DocTypes, so we don't create them
+    // but we can validate they exist
+    for (const linkField of linkFields) {
+      dependencies.push({
+        type: 'link_reference',
+        doctype: linkField.options,
+        referencedBy: linkField.fieldname
+      });
+    }
+
+    return { dependencies, mainDocType };
+  }
+
+  // Smart DocType creation with dependency resolution
+  async createDocTypeWithDependencies(doctypeDefinition: any): Promise<any> {
+    const results: any = {
+      created: [],
+      errors: [],
+      warnings: [],
+      mainDocType: null
+    };
+
+    try {
+      // Resolve dependencies
+      const { dependencies, mainDocType } = this.resolveDependencies(doctypeDefinition);
+      
+      // Create dependencies first
+      for (const dep of dependencies) {
+        if (dep.type === 'child_table') {
+          try {
+            // Check if child table already exists
+            const exists = await this.docTypeExists(dep.definition.name);
+            if (!exists) {
+              const childTable = await this.createChildTable(dep.definition);
+              results.created.push({
+                type: 'child_table',
+                name: childTable.name,
+                referencedBy: dep.referencedBy
+              });
+            } else {
+              results.warnings.push({
+                type: 'child_table_exists',
+                name: dep.definition.name,
+                message: `Child table ${dep.definition.name} already exists`
+              });
+            }
+          } catch (error: any) {
+            results.errors.push({
+              type: 'child_table_creation_failed',
+              name: dep.definition.name,
+              error: error.message,
+              referencedBy: dep.referencedBy
+            });
+          }
+        } else if (dep.type === 'link_reference') {
+          try {
+            // Verify link reference exists
+            const exists = await this.docTypeExists(dep.doctype);
+            if (!exists) {
+              results.warnings.push({
+                type: 'link_reference_missing',
+                doctype: dep.doctype,
+                referencedBy: dep.referencedBy,
+                message: `Link field ${dep.referencedBy} references non-existent DocType ${dep.doctype}`
+              });
+            }
+          } catch (error: any) {
+            results.warnings.push({
+              type: 'link_reference_check_failed',
+              doctype: dep.doctype,
+              referencedBy: dep.referencedBy,
+              error: error.message
+            });
+          }
+        }
+      }
+
+      // If there are critical errors (child table creation failed), don't proceed
+      const criticalErrors = results.errors.filter((e: any) => e.type === 'child_table_creation_failed');
+      if (criticalErrors.length > 0) {
+        throw new Error(`Cannot create main DocType due to failed dependencies: ${JSON.stringify(criticalErrors, null, 2)}`);
+      }
+
+      // Create the main DocType
+      const mainDocTypeResult = await this.createDocType(mainDocType);
+      results.mainDocType = mainDocTypeResult;
+
+      // Reload the main DocType to apply all changes
+      await this.reloadDocType(mainDocTypeResult.name);
+
+      return results;
+    } catch (error: any) {
+      results.errors.push({
+        type: 'main_doctype_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart DocType creation failed: ${JSON.stringify(results, null, 2)}`);
     }
   }
 
@@ -962,6 +1200,98 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   options: {
                     type: "string",
                     description: "Field options (for Select, Link, Table fields, etc.)"
+                  },
+                  reqd: {
+                    type: "number",
+                    description: "Required field (1 for required, 0 for optional)"
+                  },
+                  unique: {
+                    type: "number",
+                    description: "Unique field (1 for unique, 0 for non-unique)"
+                  },
+                  default: {
+                    type: "string",
+                    description: "Default value"
+                  },
+                  hidden: {
+                    type: "number",
+                    description: "Hidden field (1 for hidden, 0 for visible)"
+                  }
+                },
+                required: ["fieldname", "label", "fieldtype"]
+              },
+              description: "Array of field definitions for the DocType"
+            },
+            is_submittable: {
+              type: "number",
+              description: "Whether documents can be submitted (1 for yes, 0 for no)"
+            },
+            is_table: {
+              type: "number",
+              description: "Whether this is a child table DocType (1 for yes, 0 for no)"
+            },
+            autoname: {
+              type: "string",
+              description: "Auto-naming rule (e.g., 'field:name', 'naming_series:', 'autoincrement')"
+            },
+            title_field: {
+              type: "string",
+              description: "Field to use as title"
+            }
+          },
+          required: ["name"]
+        }
+      },
+      {
+        name: "create_smart_doctype",
+        description: "Create a new DocType with automatic dependency resolution (child tables and link validation)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Name of the new DocType"
+            },
+            module: {
+              type: "string",
+              description: "Module name (optional, defaults to 'Custom')"
+            },
+            fields: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  fieldname: {
+                    type: "string",
+                    description: "Field name"
+                  },
+                  label: {
+                    type: "string",
+                    description: "Field label"
+                  },
+                  fieldtype: {
+                    type: "string",
+                    description: "Field type (e.g., Data, Text, Select, Link, Table, etc.)"
+                  },
+                  options: {
+                    type: "string",
+                    description: "Field options (for Select, Link, Table fields, etc.)"
+                  },
+                  child_table_fields: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        fieldname: { type: "string" },
+                        label: { type: "string" },
+                        fieldtype: { type: "string" },
+                        options: { type: "string" },
+                        reqd: { type: "number" },
+                        default: { type: "string" }
+                      },
+                      required: ["fieldname", "label", "fieldtype"]
+                    },
+                    description: "Field definitions for child table (only for Table fieldtype)"
                   },
                   reqd: {
                     type: "number",
@@ -1900,10 +2230,123 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with suggestions
+        let errorMessage = `Failed to create DocType '${name}': ${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
+          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
+          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if custom DocType creation is enabled';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Failed to create DocType ${name}: ${error?.message || 'Unknown error'}`
+            text: errorMessage
+          }],
+          isError: true
+        };
+      }
+    }
+
+    case "create_smart_doctype": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const name = String(request.params.arguments?.name);
+      const module = request.params.arguments?.module as string | undefined;
+      const fields = request.params.arguments?.fields as any[] | undefined;
+      const is_submittable = request.params.arguments?.is_submittable as number | undefined;
+      const is_table = request.params.arguments?.is_table as number | undefined;
+      const autoname = request.params.arguments?.autoname as string | undefined;
+      const title_field = request.params.arguments?.title_field as string | undefined;
+      
+      if (!name) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name is required"
+        );
+      }
+      
+      try {
+        // Build the DocType definition
+        const doctypeDefinition: any = {
+          name: name,
+          module: module
+        };
+        
+        if (fields && fields.length > 0) {
+          doctypeDefinition.fields = fields;
+        }
+        
+        if (is_submittable !== undefined) {
+          doctypeDefinition.is_submittable = is_submittable;
+        }
+        
+        if (is_table !== undefined) {
+          doctypeDefinition.is_table = is_table;
+        }
+        
+        if (autoname) {
+          doctypeDefinition.autoname = autoname;
+        }
+        
+        if (title_field) {
+          doctypeDefinition.title_field = title_field;
+        }
+        
+        const result = await erpnext.createDocTypeWithDependencies(doctypeDefinition);
+        
+        // Format the response with detailed information
+        let responseText = `Smart DocType Creation Results for '${name}':\n\n`;
+        
+        if (result.created && result.created.length > 0) {
+          responseText += `✅ Created Dependencies:\n`;
+          for (const created of result.created) {
+            responseText += `  - ${created.type}: ${created.name} (referenced by: ${created.referencedBy})\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          responseText += `⚠️  Warnings:\n`;
+          for (const warning of result.warnings) {
+            responseText += `  - ${warning.message || warning.error}\n`;
+          }
+          responseText += `\n`;
+        }
+        
+        if (result.mainDocType) {
+          responseText += `✅ Main DocType Created: ${result.mainDocType.name}\n`;
+          responseText += `📋 Details: ${JSON.stringify(result.mainDocType, null, 2)}\n`;
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: responseText
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Smart DocType creation failed for '${name}':\n\n${error?.message || 'Unknown error'}`
           }],
           isError: true
         };
@@ -1952,10 +2395,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting for child table creation
+        let errorMessage = `Failed to create child table '${name}': ${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions
+        errorMessage += '\n\n💡 Suggestions:';
+        errorMessage += '\n- Ensure the child table name is unique and valid';
+        errorMessage += '\n- Check that all field definitions are correct';
+        errorMessage += '\n- Verify you have Administrator permissions';
+        errorMessage += '\n- Consider using create_smart_doctype for automatic child table creation';
+        
         return {
           content: [{
             type: "text",
-            text: `Failed to create child table ${name}: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -1998,10 +2451,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting for adding child table
+        let errorMessage = `Failed to add child table '${childTableDoctype}' to '${parentDoctype}': ${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions
+        errorMessage += '\n\n💡 Suggestions:';
+        errorMessage += '\n- Ensure the parent DocType exists and is accessible';
+        errorMessage += '\n- Verify the child table DocType exists and is properly configured';
+        errorMessage += '\n- Check that the fieldname is unique within the parent DocType';
+        errorMessage += '\n- Ensure you have Administrator permissions';
+        errorMessage += '\n- Consider using create_smart_doctype for automatic child table integration';
+        
         return {
           content: [{
             type: "text",
-            text: `Failed to add child table to DocType: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
