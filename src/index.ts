@@ -3799,10 +3799,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Workflow creation failed for '${workflow_name}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('DocType') || error?.message?.includes('document_type')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the document_type exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+        }
+        
+        if (error?.message?.includes('state') || error?.message?.includes('transition')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all states referenced in transitions exist in the states array';
+          errorMessage += '\n- Check that state names match exactly (case-sensitive)';
+          errorMessage += '\n- Verify transition rules are valid';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if workflow creation is enabled';
+          errorMessage += '\n- Verify you have access to the target DocType';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use a unique workflow name';
+          errorMessage += '\n- Check existing workflows for the same DocType';
+          errorMessage += '\n- Consider adding a suffix to make the name unique';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Smart Workflow creation failed for '${workflow_name}':\n\n${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -3873,10 +3905,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Server Script creation failed for '${name || 'Unnamed Script'}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('syntax') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Check Python syntax in your script';
+          errorMessage += '\n- Ensure all imports are valid';
+          errorMessage += '\n- Verify variable names and function calls';
+          errorMessage += '\n- Use the lint_script tool to validate syntax';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('reference_doctype')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the reference_doctype exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+        }
+        
+        if (error?.message?.includes('event') || error?.message?.includes('hook')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Verify the event name is valid for the DocType';
+          errorMessage += '\n- Check ERPNext documentation for available events';
+          errorMessage += '\n- Ensure event timing is appropriate';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if server script creation is enabled';
+          errorMessage += '\n- Verify you have access to the target DocType';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use a unique script name';
+          errorMessage += '\n- Check existing scripts for the same DocType and event';
+          errorMessage += '\n- Consider adding a suffix to make the name unique';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Smart Server Script creation failed: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -3924,21 +3996,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
-        // Enhanced error reporting with suggestions
-        let errorMessage = `Failed to create Smart Client Script '${name}': ${error?.message || 'Unknown error'}`;
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Client Script creation failed for '${name || 'Unnamed Script'}':\n\n${error?.message || 'Unknown error'}`;
         
         // Add specific suggestions based on error content
-        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
+        if (error?.message?.includes('syntax') || error?.message?.includes('invalid')) {
           errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
-          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
-          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
+          errorMessage += '\n- Check JavaScript syntax in your script';
+          errorMessage += '\n- Ensure all function calls are valid';
+          errorMessage += '\n- Verify variable names and references';
+          errorMessage += '\n- Use the lint_script tool to validate syntax';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('dt')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the target DocType (dt) exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+          errorMessage += '\n- Verify you have access to the target DocType';
+        }
+        
+        if (error?.message?.includes('view') || error?.message?.includes('form')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the view type is valid (Form, List, etc.)';
+          errorMessage += '\n- Check that the view exists for the DocType';
+          errorMessage += '\n- Verify view permissions and access';
+        }
+        
+        if (error?.message?.includes('event') || error?.message?.includes('trigger')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Verify the script triggers appropriate events';
+          errorMessage += '\n- Check ERPNext documentation for available client events';
+          errorMessage += '\n- Ensure event timing is appropriate for the view';
         }
         
         if (error?.message?.includes('permission') || error?.message?.includes('403')) {
           errorMessage += '\n\n💡 Suggestions:';
           errorMessage += '\n- Ensure you have Administrator role';
-          errorMessage += '\n- Check if custom DocType creation is enabled';
+          errorMessage += '\n- Check if client script creation is enabled';
+          errorMessage += '\n- Verify you have access to the target DocType';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use a unique script name';
+          errorMessage += '\n- Check existing scripts for the same DocType and view';
+          errorMessage += '\n- Consider adding a suffix to make the name unique';
+        }
+        
+        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
+          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
+          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
         }
         
         return {
@@ -4015,10 +4125,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Webhook creation failed for '${webhook_url}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('URL') || error?.message?.includes('url') || error?.message?.includes('http')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the webhook URL is valid and accessible';
+          errorMessage += '\n- Check that the URL uses HTTPS for security';
+          errorMessage += '\n- Verify the endpoint accepts POST requests';
+          errorMessage += '\n- Test the URL manually to ensure it responds';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('webhook_doctype')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the webhook_doctype exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+        }
+        
+        if (error?.message?.includes('event') || error?.message?.includes('webhook_events')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Verify webhook_events are valid for the DocType';
+          errorMessage += '\n- Common events: after_insert, after_update, after_delete';
+          errorMessage += '\n- Check ERPNext documentation for available events';
+        }
+        
+        if (error?.message?.includes('condition') || error?.message?.includes('filter')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the condition is valid Python code';
+          errorMessage += '\n- Check syntax and variable references';
+          errorMessage += '\n- Use the test_script tool to validate conditions';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if webhook creation is enabled';
+          errorMessage += '\n- Verify you have access to the target DocType';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use a unique webhook configuration';
+          errorMessage += '\n- Check existing webhooks for the same DocType and URL';
+          errorMessage += '\n- Consider adding a suffix to make it unique';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Smart Webhook creation failed: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -4166,10 +4323,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Dashboard creation failed for '${dashboard_name}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('chart') || error?.message?.includes('report')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all referenced charts and reports exist';
+          errorMessage += '\n- Use create_smart_report to create missing reports first';
+          errorMessage += '\n- Check that chart and report names are spelled correctly';
+          errorMessage += '\n- Verify you have access to the referenced items';
+        }
+        
+        if (error?.message?.includes('card') || error?.message?.includes('widget')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure card configurations are valid';
+          errorMessage += '\n- Check that card types are supported';
+          errorMessage += '\n- Verify card data sources exist';
+          errorMessage += '\n- Review card layout and positioning';
+        }
+        
+        if (error?.message?.includes('module') || error?.message?.includes('app')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the module exists in ERPNext';
+          errorMessage += '\n- Check that the module name is spelled correctly';
+          errorMessage += '\n- Verify you have access to the module';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if dashboard creation is enabled';
+          errorMessage += '\n- Verify you have access to all referenced items';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use a unique dashboard name';
+          errorMessage += '\n- Check existing dashboards in the same module';
+          errorMessage += '\n- Consider adding a suffix to make the name unique';
+        }
+        
+        if (error?.message?.includes('layout') || error?.message?.includes('grid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Check card positioning and grid layout';
+          errorMessage += '\n- Ensure cards don\'t overlap';
+          errorMessage += '\n- Verify card dimensions are valid';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Smart Dashboard creation failed: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -4205,10 +4410,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Bulk Smart Create failed for DocType '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('DocType') || error?.message?.includes('doctype')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+          errorMessage += '\n- Verify you have access to the DocType';
+        }
+        
+        if (error?.message?.includes('field') || error?.message?.includes('column')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all required fields are provided';
+          errorMessage += '\n- Check that field names match the DocType schema';
+          errorMessage += '\n- Verify field data types are correct';
+          errorMessage += '\n- Use get_doctype_meta to check field definitions';
+        }
+        
+        if (error?.message?.includes('validation') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Review document data for validation errors';
+          errorMessage += '\n- Check required field values';
+          errorMessage += '\n- Verify data formats (dates, numbers, etc.)';
+          errorMessage += '\n- Use validate_before_create=true for detailed validation';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have create permissions for the DocType';
+          errorMessage += '\n- Check if bulk operations are enabled';
+          errorMessage += '\n- Verify you have Administrator role if needed';
+        }
+        
+        if (error?.message?.includes('batch') || error?.message?.includes('size')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Reduce batch_size for large datasets';
+          errorMessage += '\n- Consider processing documents in smaller chunks';
+          errorMessage += '\n- Check server memory and timeout settings';
+        }
+        
+        if (error?.message?.includes('duplicate') || error?.message?.includes('unique')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Check for duplicate document names or unique fields';
+          errorMessage += '\n- Use continue_on_error=true to skip duplicates';
+          errorMessage += '\n- Review data for conflicting unique constraints';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Failed to bulk smart create documents: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };
@@ -4244,10 +4498,67 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           }]
         };
       } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Smart Import failed for DocType '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('DocType') || error?.message?.includes('doctype')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType exists in ERPNext';
+          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
+          errorMessage += '\n- Set create_missing_doctypes=true to auto-create DocTypes';
+          errorMessage += '\n- Check that the DocType name is spelled correctly';
+        }
+        
+        if (error?.message?.includes('conflict') || error?.message?.includes('duplicate')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Use conflict_resolution=\'skip\' to ignore duplicates';
+          errorMessage += '\n- Use conflict_resolution=\'overwrite\' to update existing';
+          errorMessage += '\n- Use conflict_resolution=\'merge\' to combine data';
+          errorMessage += '\n- Review data for duplicate document names';
+        }
+        
+        if (error?.message?.includes('validation') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Set validate_before_import=true for detailed validation';
+          errorMessage += '\n- Check required field values in your data';
+          errorMessage += '\n- Verify data formats (dates, numbers, etc.)';
+          errorMessage += '\n- Review field constraints and relationships';
+        }
+        
+        if (error?.message?.includes('field') || error?.message?.includes('column')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all required fields are provided';
+          errorMessage += '\n- Check that field names match the DocType schema';
+          errorMessage += '\n- Verify field data types are correct';
+          errorMessage += '\n- Use get_doctype_meta to check field definitions';
+        }
+        
+        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have import permissions for the DocType';
+          errorMessage += '\n- Check if import operations are enabled';
+          errorMessage += '\n- Verify you have Administrator role if needed';
+        }
+        
+        if (error?.message?.includes('date') || error?.message?.includes('timestamp')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Set preserve_creation_dates=true to maintain original dates';
+          errorMessage += '\n- Check date format consistency in your data';
+          errorMessage += '\n- Verify timezone handling for date fields';
+        }
+        
+        if (error?.message?.includes('format') || error?.message?.includes('json')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure documents are in valid JSON format';
+          errorMessage += '\n- Check for proper escaping of special characters';
+          errorMessage += '\n- Verify array and object structure';
+        }
+        
         return {
           content: [{
             type: "text",
-            text: `Failed to smart import documents: ${error?.message || 'Unknown error'}`
+            text: errorMessage
           }],
           isError: true
         };

@@ -20,6 +20,106 @@ This document outlines the improvements made to the ERPNext MCP Server to make i
 ### 🔧 New Smart Tools
 
 #### `create_smart_doctype`
+- **Enhanced Error Handling**: Comprehensive error messages with specific suggestions
+- **Automatic Dependency Resolution**: Creates missing child tables and validates Link fields
+- **Detailed Results**: Reports created dependencies, warnings, and main DocType creation
+
+#### `create_smart_workflow`
+- **Enhanced Error Handling**: Detailed error messages with workflow-specific suggestions
+- **DocType Validation**: Ensures target DocType exists before workflow creation
+- **State and Transition Validation**: Validates workflow state consistency
+
+#### `create_smart_server_script`
+- **Enhanced Error Handling**: Python syntax validation and detailed error reporting
+- **DocType and Event Validation**: Ensures referenced DocTypes and events are valid
+- **Script Validation**: Pre-creation syntax and logic validation
+
+#### `create_smart_client_script`
+- **Enhanced Error Handling**: JavaScript syntax validation and comprehensive error messages
+- **View and DocType Validation**: Ensures target DocType and view exist
+- **Event Trigger Validation**: Validates client-side event handling
+
+#### `create_smart_webhook`
+- **Enhanced Error Handling**: URL validation and security recommendations
+- **DocType and Event Validation**: Ensures webhook configuration is valid
+- **Condition Validation**: Validates webhook trigger conditions
+
+#### `create_smart_dashboard`
+- **Enhanced Error Handling**: Chart and report validation with detailed suggestions
+- **Card and Layout Validation**: Ensures dashboard components are properly configured
+- **Module and Permission Validation**: Validates access to referenced resources
+
+#### `bulk_smart_create_documents`
+- **Enhanced Error Handling**: Batch processing errors with optimization suggestions
+- **Validation and Conflict Resolution**: Comprehensive data validation and duplicate handling
+- **Performance Optimization**: Configurable batch sizes and error handling strategies
+
+#### `smart_import_documents`
+- **Enhanced Error Handling**: Import-specific error messages with resolution strategies
+- **Conflict Resolution**: Multiple strategies for handling existing data
+- **Data Validation**: Comprehensive validation before import
+
+### 🎯 Enhanced Error Handling for All Smart Tools
+
+All smart tools now feature comprehensive error handling that provides:
+
+#### **Detailed Error Messages**
+- Clear, descriptive error messages that explain what went wrong
+- Context-specific information about the failure
+- Structured error reporting with categorized information
+
+#### **Intelligent Suggestions**
+- **Context-Aware Recommendations**: Suggestions based on the specific error type
+- **Actionable Solutions**: Step-by-step guidance to resolve issues
+- **Best Practice Tips**: Recommendations for optimal usage
+
+#### **Error Categories with Specific Guidance**
+
+##### **DocType-Related Errors**
+- Suggestions to use `create_smart_doctype` for missing dependencies
+- Guidance on checking DocType names and permissions
+- Recommendations for creating missing DocTypes first
+
+##### **Validation Errors**
+- Field validation guidance with specific checks
+- Data type and format recommendations
+- Required field completion suggestions
+
+##### **Permission Errors**
+- Administrator role requirements
+- Feature enablement guidance
+- Access verification recommendations
+
+##### **Syntax and Code Errors**
+- Language-specific syntax checking (Python for server scripts, JavaScript for client scripts)
+- Import and function call validation
+- Tool recommendations for syntax validation
+
+##### **Duplicate and Conflict Errors**
+- Unique naming suggestions
+- Conflict resolution strategy recommendations
+- Existing item checking guidance
+
+##### **URL and Network Errors**
+- Webhook URL validation guidance
+- HTTPS and security recommendations
+- Endpoint testing suggestions
+
+##### **Batch and Performance Errors**
+- Batch size optimization recommendations
+- Memory and timeout guidance
+- Processing strategy suggestions
+
+#### **Benefits of Enhanced Error Handling**
+- **Faster Problem Resolution**: Users get specific guidance on how to fix issues
+- **Reduced Support Burden**: Clear error messages reduce the need for troubleshooting
+- **Better User Experience**: Actionable suggestions help users succeed
+- **Consistent Quality**: All smart tools now provide the same level of error detail
+- **Learning Opportunity**: Users learn best practices through error guidance
+
+### 🔧 New Smart Tools
+
+#### `create_smart_doctype`
 Intelligent DocType creation with automatic dependency resolution.
 
 **Features:**

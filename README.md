@@ -1102,17 +1102,26 @@ Create a webhook with URL validation and security features:
 - **Batch Processing**: Efficient handling of large datasets with configurable batch sizes
 - **Conflict Resolution**: Multiple strategies for handling existing data
 
+### Enhanced Error Handling
+- **Detailed Error Messages**: Clear, descriptive error messages that explain what went wrong
+- **Context-Aware Suggestions**: Intelligent recommendations based on specific error types
+- **Actionable Solutions**: Step-by-step guidance to resolve common issues
+- **Best Practice Tips**: Recommendations for optimal usage and configuration
+
+### Error Categories with Specific Guidance
+- **DocType-Related Errors**: Suggestions for missing dependencies and DocType creation
+- **Validation Errors**: Field validation guidance with specific checks and data type recommendations
+- **Permission Errors**: Administrator role requirements and feature enablement guidance
+- **Syntax and Code Errors**: Language-specific syntax checking and validation tool recommendations
+- **Duplicate and Conflict Errors**: Unique naming suggestions and conflict resolution strategies
+- **URL and Network Errors**: Webhook URL validation and security recommendations
+- **Batch and Performance Errors**: Batch size optimization and processing strategy suggestions
+
 ### Enhanced User Experience
 - **Detailed Feedback**: Comprehensive reporting of what was created, warnings, and errors
 - **Progress Tracking**: Real-time updates for long-running operations
 - **Validation**: Pre-creation validation prevents invalid data
 - **Recovery Suggestions**: Specific steps to resolve common issues
-
-### Data Integrity
-- **Dependency Validation**: Ensures all referenced DocTypes exist before creation
-- **Field Validation**: Checks required fields and data types
-- **Permission Management**: Automatic setting of appropriate permissions
-- **Conflict Handling**: Smart strategies for handling existing resources
 
 ### When to Use Smart Tools
 
@@ -1129,3 +1138,70 @@ Create a webhook with URL validation and security features:
 - Wanting manual control over the creation process
 - Performing quick, one-off operations
 - Working with trusted, validated data
+
+## Error Handling Examples
+
+Smart tools provide comprehensive error handling with detailed messages and actionable suggestions:
+
+### Smart DocType Creation Error
+```
+Smart DocType creation failed for 'Customer_Order':
+
+DocType 'Supplier' referenced in Link field does not exist
+
+💡 Suggestions:
+- Use create_smart_doctype tool for automatic dependency resolution
+- Ensure Link fields reference existing DocTypes
+- Create child table DocTypes before referencing them in Table fields
+```
+
+### Smart Workflow Creation Error
+```
+Smart Workflow creation failed for 'Order_Approval':
+
+State 'Pending' referenced in transition does not exist in states array
+
+💡 Suggestions:
+- Ensure all states referenced in transitions exist in the states array
+- Check that state names match exactly (case-sensitive)
+- Verify transition rules are valid
+```
+
+### Smart Server Script Creation Error
+```
+Smart Server Script creation failed for 'Order_Validation':
+
+Invalid Python syntax in script
+
+💡 Suggestions:
+- Check Python syntax in your script
+- Ensure all imports are valid
+- Verify variable names and function calls
+- Use the lint_script tool to validate syntax
+```
+
+### Smart Webhook Creation Error
+```
+Smart Webhook creation failed for 'https://api.example.com/webhook':
+
+Invalid webhook URL format
+
+💡 Suggestions:
+- Ensure the webhook URL is valid and accessible
+- Check that the URL uses HTTPS for security
+- Verify the endpoint accepts POST requests
+- Test the URL manually to ensure it responds
+```
+
+### Bulk Smart Create Error
+```
+Bulk Smart Create failed for DocType 'Customer':
+
+Required field 'customer_name' is missing in document 3
+
+💡 Suggestions:
+- Ensure all required fields are provided
+- Check that field names match the DocType schema
+- Verify field data types are correct
+- Use get_doctype_meta to check field definitions
+```
