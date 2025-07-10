@@ -1711,7 +1711,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_doctype",
-        description: "Create a new DocType in ERPNext",
+        description: "Create a new DocType in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
@@ -1759,6 +1759,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   hidden: {
                     type: "number",
                     description: "Hidden field (1 for hidden, 0 for visible)"
+                  },
+                  mode: {
+                    type: "string",
+                    enum: ["standard", "smart"],
+                    default: "standard",
+                    description: "Creation mode: 'standard' (default) or 'smart' (with dependency resolution)"
                   }
                 },
                 required: ["fieldname", "label", "fieldtype"]
@@ -1787,92 +1793,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_smart_doctype",
-        description: "Create a new DocType with automatic dependency resolution (child tables and link validation)",
+        description: "[DEPRECATED] Use create_doctype with mode='smart' instead – kept for backward compatibility",
         inputSchema: {
           type: "object",
           properties: {
-            name: {
-              type: "string",
-              description: "Name of the new DocType"
-            },
-            module: {
-              type: "string",
-              description: "Module name (optional, defaults to 'Custom')"
-            },
-            fields: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  fieldname: {
-                    type: "string",
-                    description: "Field name"
-                  },
-                  label: {
-                    type: "string",
-                    description: "Field label"
-                  },
-                  fieldtype: {
-                    type: "string",
-                    description: "Field type (e.g., Data, Text, Select, Link, Table, etc.)"
-                  },
-                  options: {
-                    type: "string",
-                    description: "Field options (for Select, Link, Table fields, etc.)"
-                  },
-                  child_table_fields: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        fieldname: { type: "string" },
-                        label: { type: "string" },
-                        fieldtype: { type: "string" },
-                        options: { type: "string" },
-                        reqd: { type: "number" },
-                        default: { type: "string" }
-                      },
-                      required: ["fieldname", "label", "fieldtype"]
-                    },
-                    description: "Field definitions for child table (only for Table fieldtype)"
-                  },
-                  reqd: {
-                    type: "number",
-                    description: "Required field (1 for required, 0 for optional)"
-                  },
-                  unique: {
-                    type: "number",
-                    description: "Unique field (1 for unique, 0 for non-unique)"
-                  },
-                  default: {
-                    type: "string",
-                    description: "Default value"
-                  },
-                  hidden: {
-                    type: "number",
-                    description: "Hidden field (1 for hidden, 0 for visible)"
-                  }
-                },
-                required: ["fieldname", "label", "fieldtype"]
-              },
-              description: "Array of field definitions for the DocType"
-            },
-            is_submittable: {
-              type: "number",
-              description: "Whether documents can be submitted (1 for yes, 0 for no)"
-            },
-            is_table: {
-              type: "number",
-              description: "Whether this is a child table DocType (1 for yes, 0 for no)"
-            },
-            autoname: {
-              type: "string",
-              description: "Auto-naming rule (e.g., 'field:name', 'naming_series:', 'autoincrement')"
-            },
-            title_field: {
-              type: "string",
-              description: "Field to use as title"
-            }
+            name: { type: "string", description: "Name of the new DocType" },
+            module: { type: "string", description: "Module name (optional, defaults to 'Custom')" },
+            fields: { type: "array", items: { type: "object" }, description: "Field definitions (same as create_doctype)" },
+            is_submittable: { type: "number", description: "Whether documents can be submitted (1 for yes, 0 for no)" },
+            is_table: { type: "number", description: "Is child table DocType (1/0)" },
+            autoname: { type: "string", description: "Auto-naming rule" },
+            title_field: { type: "string", description: "Field to use as title" }
           },
           required: ["name"]
         }
@@ -3087,98 +3018,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
     }
 
-    case "create_doctype": {
-      if (!erpnext.isAuthenticated()) {
-        return {
-          content: [{
-            type: "text",
-            text: "Not authenticated with ERPNext. Please configure API key authentication."
-          }],
-          isError: true
-        };
-      }
-      
-      const name = String(request.params.arguments?.name);
-      const module = request.params.arguments?.module as string | undefined;
-      const fields = request.params.arguments?.fields as any[] | undefined;
-      const is_submittable = request.params.arguments?.is_submittable as number | undefined;
-      const is_table = request.params.arguments?.is_table as number | undefined;
-      const autoname = request.params.arguments?.autoname as string | undefined;
-      const title_field = request.params.arguments?.title_field as string | undefined;
-      
-      if (!name) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "DocType name is required"
-        );
-      }
-      
-      try {
-        // Build the DocType definition
-        const doctypeDefinition: any = {
-          name: name,
-          module: module
-        };
-        
-        if (fields && fields.length > 0) {
-          doctypeDefinition.fields = fields;
-        }
-        
-        if (is_submittable !== undefined) {
-          doctypeDefinition.is_submittable = is_submittable;
-        }
-        
-        if (is_table !== undefined) {
-          doctypeDefinition.is_table = is_table;
-        }
-        
-        if (autoname) {
-          doctypeDefinition.autoname = autoname;
-        }
-        
-        if (title_field) {
-          doctypeDefinition.title_field = title_field;
-        }
-        
-        const result = await erpnext.createDocType(doctypeDefinition);
-        
-        // Try to reload the DocType to apply changes
-        await erpnext.reloadDocType(result.name);
-        
-        return {
-          content: [{
-            type: "text",
-            text: `Created DocType: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
-        };
-      } catch (error: any) {
-        // Enhanced error reporting with suggestions
-        let errorMessage = `Failed to create DocType '${name}': ${error?.message || 'Unknown error'}`;
-        
-        // Add specific suggestions based on error content
-        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
-          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
-          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
-        }
-        
-        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure you have Administrator role';
-          errorMessage += '\n- Check if custom DocType creation is enabled';
-        }
-        
-        return {
-          content: [{
-            type: "text",
-            text: errorMessage
-          }],
-          isError: true
-        };
-      }
-    }
-
+    case "create_doctype":
     case "create_smart_doctype": {
       if (!erpnext.isAuthenticated()) {
         return {
@@ -3197,6 +3037,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const is_table = request.params.arguments?.is_table as number | undefined;
       const autoname = request.params.arguments?.autoname as string | undefined;
       const title_field = request.params.arguments?.title_field as string | undefined;
+      const modeInput = request.params.arguments?.mode as string | undefined;
       
       if (!name) {
         throw new McpError(
@@ -3232,44 +3073,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           doctypeDefinition.title_field = title_field;
         }
         
-        const result = await erpnext.createDocTypeWithDependencies(doctypeDefinition);
-        
-        // Format the response with detailed information
-        let responseText = `Smart DocType Creation Results for '${name}':\n\n`;
-        
-        if (result.created && result.created.length > 0) {
-          responseText += `✅ Created Dependencies:\n`;
-          for (const created of result.created) {
-            responseText += `  - ${created.type}: ${created.name} (referenced by: ${created.referencedBy})\n`;
+        // Determine mode
+        const mode = (modeInput || (request.params.name === "create_smart_doctype" ? "smart" : "standard")).toLowerCase();
+
+        let payload: any;
+        let ok = true;
+        try {
+          if (mode === "smart") {
+            payload = await erpnext.createDocTypeWithDependencies(doctypeDefinition);
+          } else {
+            payload = await erpnext.createDocType(doctypeDefinition);
+            // Reload to apply changes
+            await erpnext.reloadDocType(payload.name);
           }
-          responseText += `\n`;
-        }
-        
-        if (result.warnings && result.warnings.length > 0) {
-          responseText += `⚠️  Warnings:\n`;
-          for (const warning of result.warnings) {
-            responseText += `  - ${warning.message || warning.error}\n`;
+        } catch (innerErr: any) {
+          ok = false;
+          payload = {
+            code: "DOC_CREATE_FAILED",
+            message: innerErr?.message || "Unknown error",
+            suggestions: [] as string[]
+          };
+
+          // Quick suggestion heuristics
+          if (payload.message.includes("Link") || payload.message.includes("Table")) {
+            payload.suggestions.push("Try mode='smart' for automatic dependency resolution");
+            payload.suggestions.push("Ensure Link/Table fields reference existing DocTypes");
           }
-          responseText += `\n`;
+          if (payload.message.includes("permission") || payload.message.includes("403")) {
+            payload.suggestions.push("Ensure you have Administrator role and custom DocType creation enabled");
+          }
         }
-        
-        if (result.mainDocType) {
-          responseText += `✅ Main DocType Created: ${result.mainDocType.name}\n`;
-          responseText += `📋 Details: ${JSON.stringify(result.mainDocType, null, 2)}\n`;
-        }
-        
+
+        const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
         return {
-          content: [{
-            type: "text",
-            text: responseText
-          }]
+          content: [{ type: "text", text: responseBody }],
+          isError: ok ? undefined : true
         };
       } catch (error: any) {
+        const err = {
+          ok: false,
+          error: {
+            code: "DOC_CREATE_FAILED",
+            message: error?.message || "Unknown error",
+            suggestions: [] as string[]
+          }
+        };
+        if (err.error.message.includes("Link") || err.error.message.includes("Table")) {
+          err.error.suggestions.push("Try mode='smart' for automatic dependency resolution");
+        }
+        if (err.error.message.includes("permission") || err.error.message.includes("403")) {
+          err.error.suggestions.push("Ensure you have Administrator role and custom DocType creation enabled");
+        }
+
         return {
-          content: [{
-            type: "text",
-            text: `Smart DocType creation failed for '${name}':\n\n${error?.message || 'Unknown error'}`
-          }],
+          content: [{ type: "text", text: JSON.stringify(err, null, 2) }],
           isError: true
         };
       }
