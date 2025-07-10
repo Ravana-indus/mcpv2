@@ -116,7 +116,51 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to create ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      const errResp = error?.response || {};
+      const errData = errResp.data || {};
+
+      const enriched: any = {
+        status: errResp.status,
+        statusText: errResp.statusText,
+        message: errData.message || errData.exc || error?.message || 'Unknown error',
+        errorType: errData.exc_type,
+        suggestions: [] as string[]
+      };
+
+      // Extract traceback (first ~5 lines to keep message compact)
+      if (typeof errData.exception === 'string' && errData.exception.includes('Traceback')) {
+        enriched.traceback = errData.exception.split('\n').slice(0, 6).join('\n');
+      }
+
+      // Decode _server_messages if present
+      if (errData._server_messages) {
+        try {
+          const decoded = JSON.parse(errData._server_messages);
+          enriched.serverMessages = decoded;
+          if (!enriched.message && decoded.length) {
+            enriched.message = decoded[0];
+          }
+        } catch {/* ignore JSON parse errors */}
+      }
+
+      const msgLower = String(enriched.message || '').toLowerCase();
+      if (msgLower.includes('mandatory') || msgLower.includes('required')) {
+        enriched.suggestions.push('Ensure all mandatory fields are supplied or use mode="smart".');
+      }
+      if (msgLower.includes('unique') || msgLower.includes('duplicate') || msgLower.includes('exists')) {
+        enriched.suggestions.push('Document with same identifier exists – consider update_document or change "name" value.');
+      }
+      if (msgLower.includes('permission') || enriched.status === 403) {
+        enriched.suggestions.push('Verify API key/secret roles and permissions.');
+      }
+      if (enriched.status === 500) {
+        enriched.suggestions.push('Internal server error – inspect traceback above and ERPNext server logs for root cause.');
+        if (enriched.errorType === 'ValidationError') {
+          enriched.suggestions.push('A ValidationError often indicates missing or incorrect field values.');
+        }
+      }
+
+      throw new Error(`Failed to create ${doctype}: ${JSON.stringify(enriched, null, 2)}`);
     }
   }
 
@@ -128,7 +172,49 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to update ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      const errResp = error?.response || {};
+      const errData = errResp.data || {};
+
+      const enriched: any = {
+        status: errResp.status,
+        statusText: errResp.statusText,
+        message: errData.message || errData.exc || error?.message || 'Unknown error',
+        errorType: errData.exc_type,
+        suggestions: [] as string[]
+      };
+
+      if (typeof errData.exception === 'string' && errData.exception.includes('Traceback')) {
+        enriched.traceback = errData.exception.split('\n').slice(0, 6).join('\n');
+      }
+
+      if (errData._server_messages) {
+        try {
+          const decoded = JSON.parse(errData._server_messages);
+          enriched.serverMessages = decoded;
+          if (!enriched.message && decoded.length) {
+            enriched.message = decoded[0];
+          }
+        } catch {/* ignore */}
+      }
+
+      const msgLower = String(enriched.message || '').toLowerCase();
+      if (msgLower.includes('mandatory') || msgLower.includes('required')) {
+        enriched.suggestions.push('Ensure all mandatory fields are filled or switch to mode="smart" for auto-fill.');
+      }
+      if (msgLower.includes('unique') || msgLower.includes('duplicate') || msgLower.includes('exists')) {
+        enriched.suggestions.push('Duplicate value detected – confirm unique constraints and existing records.');
+      }
+      if (msgLower.includes('permission') || enriched.status === 403) {
+        enriched.suggestions.push('Check user/API key permissions for updating this DocType.');
+      }
+      if (enriched.status === 500) {
+        enriched.suggestions.push('Internal server error – review traceback and ERPNext logs to debug.');
+        if (enriched.errorType === 'ValidationError') {
+          enriched.suggestions.push('ValidationError indicates data mismatch – verify field values/types.');
+        }
+      }
+
+      throw new Error(`Failed to update ${doctype} ${name}: ${JSON.stringify(enriched, null, 2)}`);
     }
   }
 
