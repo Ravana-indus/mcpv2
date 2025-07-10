@@ -3131,23 +3131,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         );
       }
       
+      let payload: any;
+      let ok = true;
       try {
-        const result = mode === 'smart'
+        payload = mode === 'smart'
           ? await erpnext.createSmartDocument(doctype, data)
           : await erpnext.createDocument(doctype, data);
-        let responseText = `Created ${doctype}: ${result.name}\n\n${JSON.stringify(result, null, 2)}`;
-        if (result.__warnings) {
-          responseText += `\n\n⚠️ Warnings:\n- ${result.__warnings.join('\n- ')}`;
+        let responseText = `Created ${doctype}: ${payload.name}\n\n${JSON.stringify(payload, null, 2)}`;
+        if (payload.__warnings) {
+          responseText += `\n\n⚠️ Warnings:\n- ${payload.__warnings.join('\n- ')}`;
         }
         return {
           content: [{ type: "text", text: responseText }]
         };
       } catch (error: any) {
+        ok = false;
+        payload = {
+          code: "DOC_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Ensure you have Administrator role and permission to create documents");
+        }
+        if (payload.message.includes("validation") || payload.message.includes("required")) {
+          payload.suggestions.push("Check required fields and data types");
+        }
+        if (payload.message.includes("DocType")) {
+          payload.suggestions.push("Ensure the DocType exists and is accessible");
+        }
+        const responseBody = JSON.stringify({ ok, mode, error: payload }, null, 2);
         return {
-          content: [{
-            type: "text",
-            text: formatEnrichedError(error, `Failed to create ${doctype}`)
-          }],
+          content: [{ type: "text", text: responseBody }],
           isError: true
         };
       }
@@ -3464,6 +3479,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         );
       }
       
+      let payload: any;
+      let ok = true;
       try {
         // Build the child table definition
         const childTableDefinition: any = {
@@ -3472,33 +3489,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           fields: fields || []
         };
         
-        const result = await erpnext.createChildTable(childTableDefinition);
-        
+        payload = await erpnext.createChildTable(childTableDefinition);
         // Try to reload the DocType to apply changes
-        await erpnext.reloadDocType(result.name);
-        
+        await erpnext.reloadDocType(payload.name);
         return {
           content: [{
             type: "text",
-            text: `Created Child Table: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
+            text: `Created Child Table: ${payload.name}\n\n${JSON.stringify(payload, null, 2)}`
           }]
         };
       } catch (error: any) {
-        // Enhanced error reporting for child table creation
-        let errorMessage = `Failed to create child table '${name}': ${error?.message || 'Unknown error'}`;
-        
-        // Add specific suggestions
-        errorMessage += '\n\n💡 Suggestions:';
-        errorMessage += '\n- Ensure the child table name is unique and valid';
-        errorMessage += '\n- Check that all field definitions are correct';
-        errorMessage += '\n- Verify you have Administrator permissions';
-        errorMessage += '\n- Consider using create_smart_doctype for automatic child table creation';
-        
+        ok = false;
+        payload = {
+          code: "CHILD_TABLE_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("unique")) {
+          payload.suggestions.push("Ensure the child table name is unique and valid");
+        }
+        if (payload.message.includes("field")) {
+          payload.suggestions.push("Check that all field definitions are correct");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify you have Administrator permissions");
+        }
+        const responseBody = JSON.stringify({ ok, error: payload }, null, 2);
         return {
-          content: [{
-            type: "text",
-            text: errorMessage
-          }],
+          content: [{ type: "text", text: responseBody }],
           isError: true
         };
       }
@@ -3898,11 +3916,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const hookDef = request.params.arguments;
+      let payload: any;
+      let ok = true;
       try {
-        const result = await erpnext.createHook(hookDef);
-        return { content: [{ type: "text", text: `Created Hook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+        payload = await erpnext.createHook(hookDef);
+        return { content: [{ type: "text", text: `Created Hook: ${payload.name}\n\n${JSON.stringify(payload, null, 2)}` }] };
       } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Hook: ${error?.message || 'Unknown error'}` }], isError: true };
+        ok = false;
+        payload = {
+          code: "HOOK_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+        const responseBody = JSON.stringify({ ok, error: payload }, null, 2);
+        return { content: [{ type: "text", text: responseBody }], isError: true };
       }
     }
 
@@ -3968,11 +3998,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const chartDef = request.params.arguments;
+      let payload: any;
+      let ok = true;
       try {
-        const result = await erpnext.createChart(chartDef);
-        return { content: [{ type: "text", text: `Created Chart: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+        payload = await erpnext.createChart(chartDef);
+        return { content: [{ type: "text", text: `Created Chart: ${payload.name}\n\n${JSON.stringify(payload, null, 2)}` }] };
       } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Chart: ${error?.message || 'Unknown error'}` }], isError: true };
+        ok = false;
+        payload = {
+          code: "CHART_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+        const responseBody = JSON.stringify({ ok, error: payload }, null, 2);
+        return { content: [{ type: "text", text: responseBody }], isError: true };
       }
     }
 
@@ -3981,11 +4023,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const webPageDef = request.params.arguments;
+      let payload: any;
+      let ok = true;
       try {
-        const result = await erpnext.createWebPage(webPageDef);
-        return { content: [{ type: "text", text: `Created Web Page: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
+        payload = await erpnext.createWebPage(webPageDef);
+        return { content: [{ type: "text", text: `Created Web Page: ${payload.name}\n\n${JSON.stringify(payload, null, 2)}` }] };
       } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Web Page: ${error?.message || 'Unknown error'}` }], isError: true };
+        ok = false;
+        payload = {
+          code: "WEBPAGE_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+        const responseBody = JSON.stringify({ ok, error: payload }, null, 2);
+        return { content: [{ type: "text", text: responseBody }], isError: true };
       }
     }
 
@@ -4042,11 +4096,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const { doctype, docs } = request.params.arguments;
+      let payload: any;
+      let ok = true;
       try {
-        const result = await erpnext.bulkCreateDocuments(doctype, docs);
-        return { content: [{ type: "text", text: `Bulk created ${result.length} documents in ${doctype}` }] };
+        payload = await erpnext.bulkCreateDocuments(doctype, docs);
+        return { content: [{ type: "text", text: `Bulk created ${payload.length} documents in ${doctype}` }] };
       } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to bulk create in ${doctype}: ${error?.message || 'Unknown error'}` }], isError: true };
+        ok = false;
+        payload = {
+          code: "BULK_DOC_CREATE_FAILED",
+          message: error?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Ensure you have Administrator role and permission to create documents");
+        }
+        if (payload.message.includes("DocType")) {
+          payload.suggestions.push("Ensure the DocType exists and is accessible");
+        }
+        const responseBody = JSON.stringify({ ok, error: payload }, null, 2);
+        return { content: [{ type: "text", text: responseBody }], isError: true };
       }
     }
     case "bulk_update_documents": {
