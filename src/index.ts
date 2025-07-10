@@ -1963,14 +1963,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_server_script",
-        description: "Create a new Server Script in ERPNext",
+        description: "Create a new Server Script in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
             script_type: { type: "string", description: "Script Type (DocType Event, API, etc.)" },
             script: { type: "string", description: "Script code" },
             reference_doctype: { type: "string", description: "Reference DocType (optional)" },
-            name: { type: "string", description: "Script name (optional)" }
+            name: { type: "string", description: "Script name (optional)" },
+            event: { type: "string", description: "Event type (for DocType Event scripts)" },
+            api_method_name: { type: "string", description: "API method name (for API scripts)" },
+            is_system_generated: { type: "number", description: "Is system generated (1/0, optional, defaults to 0)" },
+            disabled: { type: "number", description: "Whether script is disabled (1/0, optional, defaults to 0)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+            }
           },
           required: ["script_type", "script"]
         }
@@ -2467,7 +2477,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_smart_server_script",
-        description: "Create a new Server Script with automatic validation and dependency checking",
+        description: "[DEPRECATED] Use create_server_script with mode='smart' instead – kept for backward compatibility",
         inputSchema: {
           type: "object",
           properties: {
@@ -3429,17 +3439,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
-    case "create_server_script": {
+    case "create_server_script":
+    case "create_smart_server_script": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const serverScriptDef = request.params.arguments;
-      try {
-        const result = await erpnext.createServerScript(serverScriptDef);
-        return { content: [{ type: "text", text: `Created Server Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Server Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const script_type = args.script_type;
+      const script = args.script;
+      const reference_doctype = args.reference_doctype;
+      const name = args.name;
+      const event = args.event;
+      const api_method_name = args.api_method_name;
+      const is_system_generated = args.is_system_generated;
+      const disabled = args.disabled;
+      const modeInput = args.mode as string | undefined;
+
+      if (!script_type || !script) {
+        throw new McpError(ErrorCode.InvalidParams, "Script type and script are required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_server_script" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        if (mode === "smart") {
+          const serverScriptDef = { script_type, script, reference_doctype, name, event, api_method_name, is_system_generated, disabled };
+          payload = await erpnext.createSmartServerScript(serverScriptDef);
+        } else {
+          const serverScriptDef = { script_type, script, reference_doctype, name };
+          payload = await erpnext.createServerScript(serverScriptDef);
+        }
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "SCRIPT_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("syntax") || payload.message.includes("invalid")) {
+          payload.suggestions.push("Check script syntax or use mode='smart' for validation");
+        }
+        if (payload.message.includes("DocType") || payload.message.includes("reference_doctype")) {
+          payload.suggestions.push("Ensure referenced DocType exists");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify Administrator permissions");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_client_script": {
@@ -3633,6 +3687,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
       const { doctype, perms } = request.params.arguments;
+      
+      if (!doctype || !perms || !Array.isArray(perms)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "DocType name and permissions array are required"
+        );
+      }
+      
+      try {
+        const result = await erpnext.setPermissions(doctype, perms);
+        
+        // Check if any permissions failed
+        const failedPerms = result.filter((r: any) => !r.success);
+        const successfulPerms = result.filter((r: any) => r.success);
+        
+        if (failedPerms.length > 0) {
+          let errorMessage = `Some permissions failed to set for '${doctype}':\n\n`;
+          
+          for (const failed of failedPerms) {
+            errorMessage += `❌ Error: ${failed.error}\n`;
+            if (failed.suggestions) {
+              errorMessage += `💡 Suggestions:\n`;
+              for (const suggestion of failed.suggestions) {
+                errorMessage += `  - ${suggestion}\n`;
+              }
+            }
+            errorMessage += `\n`;
+          }
+          
+          if (successfulPerms.length > 0) {
+            errorMessage += `✅ Successfully set ${successfulPerms.length} permission(s)\n`;
+          }
+          
+          return { 
+            content: [{ type: "text", text: errorMessage }], 
+            isError: true 
+          };
+        }
+        
+        // All permissions succeeded
+        let responseText = `✅ Permissions set successfully for '${doctype}':\n\n`;
+        
+        for (const success of successfulPerms) {
+          responseText += `📋 ${success.message}\n`;
+          if (success.permissions) {
+            responseText += `🔐 Permissions:\n`;
+            for (const perm of success.permissions) {
+              responseText += `  - ${perm.role}: ${perm.read ? 'Read' : ''}${perm.write ? ' Write' : ''}${perm.create ? ' Create' : ''}${perm.delete ? ' Delete' : ''}\n`;
+            }
+          }
+        }
+        
+        return { content: [{ type: "text", text: responseText }] };
+        
+      } catch (error: any) {
+        // Enhanced error reporting with detailed suggestions
+        let errorMessage = `Failed to set permissions for '${doctype}':\n\n${error?.message || 'Unknown error'}`;
+        
+        // Add specific suggestions based on error content
+        if (error?.message?.includes('403') || error?.message?.includes('permission') || error?.message?.includes('forbidden')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure you have Administrator role';
+          errorMessage += '\n- Check if you have permission to modify DocType meta';
+          errorMessage += '\n- Verify the DocType exists and is accessible';
+          errorMessage += '\n- Try using the ERPNext UI to set permissions manually';
+        }
+        
+        if (error?.message?.includes('DocType') || error?.message?.includes('not found')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure the DocType name is spelled correctly';
+          errorMessage += '\n- Check that the DocType exists in ERPNext';
+          errorMessage += '\n- Use get_all_doctypes to list available DocTypes';
+        }
+        
+        if (error?.message?.includes('role') || error?.message?.includes('invalid')) {
+          errorMessage += '\n\n💡 Suggestions:';
+          errorMessage += '\n- Ensure all role names are valid and exist in ERPNext';
+          errorMessage += '\n- Check role names for typos and case sensitivity';
+          errorMessage += '\n- Verify you have permission to assign these roles';
+        }
+        
+        return { 
+          content: [{ type: "text", text: errorMessage }], 
+          isError: true 
+        };
+      }
+    }
+    case "smart_set_permissions": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Not authenticated with ERPNext. Please configure API key authentication."
+          }],
+          isError: true
+        };
+      }
+      
+      const { doctype, perms, validate_roles, preserve_existing, reload_doctype } = request.params.arguments;
       
       if (!doctype || !perms || !Array.isArray(perms)) {
         throw new McpError(
@@ -4148,119 +4301,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         };
       }
     }
-    case "create_smart_server_script": {
-      if (!erpnext.isAuthenticated()) {
-        return {
-          content: [{
-            type: "text",
-            text: "Not authenticated with ERPNext. Please configure API key authentication."
-          }],
-          isError: true
-        };
-      }
-      
-      const { script_type, script, reference_doctype, name, event, api_method_name, is_system_generated, disabled } = request.params.arguments;
-      
-      if (!script_type || !script) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Script type and script are required"
-        );
-      }
-      
-      try {
-        const serverScriptDef = {
-          script_type,
-          script,
-          reference_doctype,
-          name,
-          event,
-          api_method_name,
-          is_system_generated,
-          disabled
-        };
-        
-        const result = await erpnext.createSmartServerScript(serverScriptDef);
-        
-        // Format the response with detailed information
-        let responseText = `Smart Server Script Creation Results for '${name || 'Unnamed Script'}':\n\n`;
-        
-        if (result.script) {
-          responseText += `✅ Script Created: ${result.script.name}\n`;
-          responseText += `📋 Details: ${JSON.stringify(result.script, null, 2)}\n\n`;
-        }
-        
-        if (result.warnings && result.warnings.length > 0) {
-          responseText += `⚠️  Warnings:\n`;
-          for (const warning of result.warnings) {
-            responseText += `  - ${warning.message}\n`;
-          }
-          responseText += `\n`;
-        }
-        
-        if (result.errors && result.errors.length > 0) {
-          responseText += `❌ Errors:\n`;
-          for (const error of result.errors) {
-            responseText += `  - ${error.error}\n`;
-          }
-          responseText += `\n`;
-        }
-        
-        return {
-          content: [{
-            type: "text",
-            text: responseText
-          }]
-        };
-      } catch (error: any) {
-        // Enhanced error reporting with detailed suggestions
-        let errorMessage = `Smart Server Script creation failed for '${name || 'Unnamed Script'}':\n\n${error?.message || 'Unknown error'}`;
-        
-        // Add specific suggestions based on error content
-        if (error?.message?.includes('syntax') || error?.message?.includes('invalid')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Check Python syntax in your script';
-          errorMessage += '\n- Ensure all imports are valid';
-          errorMessage += '\n- Verify variable names and function calls';
-          errorMessage += '\n- Use the lint_script tool to validate syntax';
-        }
-        
-        if (error?.message?.includes('DocType') || error?.message?.includes('reference_doctype')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure the reference_doctype exists in ERPNext';
-          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
-          errorMessage += '\n- Check that the DocType name is spelled correctly';
-        }
-        
-        if (error?.message?.includes('event') || error?.message?.includes('hook')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Verify the event name is valid for the DocType';
-          errorMessage += '\n- Check ERPNext documentation for available events';
-          errorMessage += '\n- Ensure event timing is appropriate';
-        }
-        
-        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure you have Administrator role';
-          errorMessage += '\n- Check if server script creation is enabled';
-          errorMessage += '\n- Verify you have access to the target DocType';
-        }
-        
-        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Use a unique script name';
-          errorMessage += '\n- Check existing scripts for the same DocType and event';
-          errorMessage += '\n- Consider adding a suffix to make the name unique';
-        }
-        
-        return {
-          content: [{
-            type: "text",
-            text: errorMessage
-          }],
-          isError: true
-        };
-      }
+    case "create_smart_server_script_old": {
+      // legacy placeholder
     }
     case "create_smart_client_script": {
       if (!erpnext.isAuthenticated()) {
