@@ -116,7 +116,51 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to create ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      const errResp = error?.response || {};
+      const errData = errResp.data || {};
+
+      const enriched: any = {
+        status: errResp.status,
+        statusText: errResp.statusText,
+        message: errData.message || errData.exc || error?.message || 'Unknown error',
+        errorType: errData.exc_type,
+        suggestions: [] as string[]
+      };
+
+      // Extract traceback (first ~5 lines to keep message compact)
+      if (typeof errData.exception === 'string' && errData.exception.includes('Traceback')) {
+        enriched.traceback = errData.exception.split('\n').slice(0, 6).join('\n');
+      }
+
+      // Decode _server_messages if present
+      if (errData._server_messages) {
+        try {
+          const decoded = JSON.parse(errData._server_messages);
+          enriched.serverMessages = decoded;
+          if (!enriched.message && decoded.length) {
+            enriched.message = decoded[0];
+          }
+        } catch {/* ignore JSON parse errors */}
+      }
+
+      const msgLower = String(enriched.message || '').toLowerCase();
+      if (msgLower.includes('mandatory') || msgLower.includes('required')) {
+        enriched.suggestions.push('Ensure all mandatory fields are supplied or use mode="smart".');
+      }
+      if (msgLower.includes('unique') || msgLower.includes('duplicate') || msgLower.includes('exists')) {
+        enriched.suggestions.push('Document with same identifier exists – consider update_document or change "name" value.');
+      }
+      if (msgLower.includes('permission') || enriched.status === 403) {
+        enriched.suggestions.push('Verify API key/secret roles and permissions.');
+      }
+      if (enriched.status === 500) {
+        enriched.suggestions.push('Internal server error – inspect traceback above and ERPNext server logs for root cause.');
+        if (enriched.errorType === 'ValidationError') {
+          enriched.suggestions.push('A ValidationError often indicates missing or incorrect field values.');
+        }
+      }
+
+      throw new Error(`Failed to create ${doctype}: ${JSON.stringify(enriched, null, 2)}`);
     }
   }
 
@@ -128,7 +172,49 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error: any) {
-      throw new Error(`Failed to update ${doctype} ${name}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+      const errResp = error?.response || {};
+      const errData = errResp.data || {};
+
+      const enriched: any = {
+        status: errResp.status,
+        statusText: errResp.statusText,
+        message: errData.message || errData.exc || error?.message || 'Unknown error',
+        errorType: errData.exc_type,
+        suggestions: [] as string[]
+      };
+
+      if (typeof errData.exception === 'string' && errData.exception.includes('Traceback')) {
+        enriched.traceback = errData.exception.split('\n').slice(0, 6).join('\n');
+      }
+
+      if (errData._server_messages) {
+        try {
+          const decoded = JSON.parse(errData._server_messages);
+          enriched.serverMessages = decoded;
+          if (!enriched.message && decoded.length) {
+            enriched.message = decoded[0];
+          }
+        } catch {/* ignore */}
+      }
+
+      const msgLower = String(enriched.message || '').toLowerCase();
+      if (msgLower.includes('mandatory') || msgLower.includes('required')) {
+        enriched.suggestions.push('Ensure all mandatory fields are filled or switch to mode="smart" for auto-fill.');
+      }
+      if (msgLower.includes('unique') || msgLower.includes('duplicate') || msgLower.includes('exists')) {
+        enriched.suggestions.push('Duplicate value detected – confirm unique constraints and existing records.');
+      }
+      if (msgLower.includes('permission') || enriched.status === 403) {
+        enriched.suggestions.push('Check user/API key permissions for updating this DocType.');
+      }
+      if (enriched.status === 500) {
+        enriched.suggestions.push('Internal server error – review traceback and ERPNext logs to debug.');
+        if (enriched.errorType === 'ValidationError') {
+          enriched.suggestions.push('ValidationError indicates data mismatch – verify field values/types.');
+        }
+      }
+
+      throw new Error(`Failed to update ${doctype} ${name}: ${JSON.stringify(enriched, null, 2)}`);
     }
   }
 
@@ -1460,6 +1546,75 @@ class ERPNextClient {
 
     return results;
   }
+
+  // --- Smart single-document helpers ---
+  async createSmartDocument(
+    doctype: string,
+    doc: Record<string, any>,
+    autoFillDefaults: boolean = true
+  ): Promise<any> {
+    const warnings: string[] = [];
+    try {
+      const meta = await this.getDocTypeMeta(doctype);
+      if (meta && Array.isArray(meta.fields)) {
+        const requiredFields = meta.fields.filter((f: any) => f.reqd);
+        for (const field of requiredFields) {
+          const val = doc[field.fieldname];
+          if (val === undefined || val === null || val === '') {
+            if (autoFillDefaults && field.default !== undefined && field.default !== null && field.default !== '') {
+              doc[field.fieldname] = field.default;
+              warnings.push(`Auto-filled default for missing required field '${field.fieldname}'`);
+            } else {
+              warnings.push(`Missing required field '${field.fieldname}'`);
+            }
+          }
+        }
+      }
+    } catch (metaErr: any) {
+      warnings.push(`Could not validate required fields: ${metaErr?.message || 'Unknown error'}`);
+    }
+
+    try {
+      const created = await this.createDocument(doctype, doc);
+      if (warnings.length) {
+        (created as any).__warnings = warnings;
+      }
+      return created;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateSmartDocument(
+    doctype: string,
+    name: string,
+    doc: Record<string, any>
+  ): Promise<any> {
+    const warnings: string[] = [];
+    try {
+      const meta = await this.getDocTypeMeta(doctype);
+      if (meta && Array.isArray(meta.fields)) {
+        const fieldNames = meta.fields.map((f: any) => f.fieldname);
+        for (const key of Object.keys(doc)) {
+          if (!fieldNames.includes(key)) {
+            warnings.push(`Field '${key}' does not exist in ${doctype} – it may be ignored by ERPNext`);
+          }
+        }
+      }
+    } catch (metaErr: any) {
+      warnings.push(`Could not validate fields: ${metaErr?.message || 'Unknown error'}`);
+    }
+
+    try {
+      const updated = await this.updateDocument(doctype, name, doc);
+      if (warnings.length) {
+        (updated as any).__warnings = warnings;
+      }
+      return updated;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 // Cache for doctype metadata
@@ -1534,7 +1689,7 @@ server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
 /**
  * Handler for reading ERPNext resources.
  */
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+server.setRequestHandler(ReadResourceRequestSchema, async (request: any) => {
   if (!erpnext.isAuthenticated()) {
     throw new McpError(
       ErrorCode.InvalidRequest,
@@ -1662,6 +1817,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               additionalProperties: true,
               description: "Document data"
+            },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
             }
           },
           required: ["doctype", "data"]
@@ -1685,6 +1846,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               additionalProperties: true,
               description: "Document data to update"
+            },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "smart",
+              description: "Update mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
             }
           },
           required: ["doctype", "name", "data"]
@@ -1763,8 +1930,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   mode: {
                     type: "string",
                     enum: ["standard", "smart"],
-                    default: "standard",
-                    description: "Creation mode: 'standard' (default) or 'smart' (with dependency resolution)"
+                    default: "smart",
+                    description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
                   }
                 },
                 required: ["fieldname", "label", "fieldtype"]
@@ -1932,8 +2099,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with chart/card integration)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs chart/card integration."
             }
           },
           required: ["name", "module"]
@@ -1954,8 +2121,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["document_type", "workflow_name", "states", "transitions"]
@@ -1978,8 +2145,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["script_type", "script"]
@@ -2000,8 +2167,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["script", "dt"]
@@ -2031,8 +2198,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation & security)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & security."
             }
           },
           required: ["webhook_doctype", "webhook_url"]
@@ -2091,8 +2258,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["report_name", "ref_doctype", "report_type"]
@@ -2905,6 +3072,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       
       const doctype = String(request.params.arguments?.doctype);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
+      const mode = String(request.params.arguments?.mode || 'smart').toLowerCase();
       
       if (!doctype || !data) {
         throw new McpError(
@@ -2914,12 +3082,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
       
       try {
-        const result = await erpnext.createDocument(doctype, data);
+        const result = mode === 'smart'
+          ? await erpnext.createSmartDocument(doctype, data)
+          : await erpnext.createDocument(doctype, data);
+        let responseText = `Created ${doctype}: ${result.name}\n\n${JSON.stringify(result, null, 2)}`;
+        if (result.__warnings) {
+          responseText += `\n\n⚠️ Warnings:\n- ${result.__warnings.join('\n- ')}`;
+        }
         return {
-          content: [{
-            type: "text",
-            text: `Created ${doctype}: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
+          content: [{ type: "text", text: responseText }]
         };
       } catch (error: any) {
         return {
@@ -2946,6 +3117,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const doctype = String(request.params.arguments?.doctype);
       const name = String(request.params.arguments?.name);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
+      const mode = String(request.params.arguments?.mode || 'smart').toLowerCase();
       
       if (!doctype || !name || !data) {
         throw new McpError(
@@ -2955,12 +3127,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
       
       try {
-        const result = await erpnext.updateDocument(doctype, name, data);
+        const result = mode === 'smart'
+          ? await erpnext.updateSmartDocument(doctype, name, data)
+          : await erpnext.updateDocument(doctype, name, data);
+        let responseText = `Updated ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}`;
+        if (result.__warnings) {
+          responseText += `\n\n⚠️ Warnings:\n- ${result.__warnings.join('\n- ')}`;
+        }
         return {
-          content: [{
-            type: "text",
-            text: `Updated ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
+          content: [{ type: "text", text: responseText }]
         };
       } catch (error: any) {
         return {
