@@ -1460,6 +1460,75 @@ class ERPNextClient {
 
     return results;
   }
+
+  // --- Smart single-document helpers ---
+  async createSmartDocument(
+    doctype: string,
+    doc: Record<string, any>,
+    autoFillDefaults: boolean = true
+  ): Promise<any> {
+    const warnings: string[] = [];
+    try {
+      const meta = await this.getDocTypeMeta(doctype);
+      if (meta && Array.isArray(meta.fields)) {
+        const requiredFields = meta.fields.filter((f: any) => f.reqd);
+        for (const field of requiredFields) {
+          const val = doc[field.fieldname];
+          if (val === undefined || val === null || val === '') {
+            if (autoFillDefaults && field.default !== undefined && field.default !== null && field.default !== '') {
+              doc[field.fieldname] = field.default;
+              warnings.push(`Auto-filled default for missing required field '${field.fieldname}'`);
+            } else {
+              warnings.push(`Missing required field '${field.fieldname}'`);
+            }
+          }
+        }
+      }
+    } catch (metaErr: any) {
+      warnings.push(`Could not validate required fields: ${metaErr?.message || 'Unknown error'}`);
+    }
+
+    try {
+      const created = await this.createDocument(doctype, doc);
+      if (warnings.length) {
+        (created as any).__warnings = warnings;
+      }
+      return created;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateSmartDocument(
+    doctype: string,
+    name: string,
+    doc: Record<string, any>
+  ): Promise<any> {
+    const warnings: string[] = [];
+    try {
+      const meta = await this.getDocTypeMeta(doctype);
+      if (meta && Array.isArray(meta.fields)) {
+        const fieldNames = meta.fields.map((f: any) => f.fieldname);
+        for (const key of Object.keys(doc)) {
+          if (!fieldNames.includes(key)) {
+            warnings.push(`Field '${key}' does not exist in ${doctype} – it may be ignored by ERPNext`);
+          }
+        }
+      }
+    } catch (metaErr: any) {
+      warnings.push(`Could not validate fields: ${metaErr?.message || 'Unknown error'}`);
+    }
+
+    try {
+      const updated = await this.updateDocument(doctype, name, doc);
+      if (warnings.length) {
+        (updated as any).__warnings = warnings;
+      }
+      return updated;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 // Cache for doctype metadata
@@ -1534,7 +1603,7 @@ server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
 /**
  * Handler for reading ERPNext resources.
  */
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+server.setRequestHandler(ReadResourceRequestSchema, async (request: any) => {
   if (!erpnext.isAuthenticated()) {
     throw new McpError(
       ErrorCode.InvalidRequest,
@@ -1662,6 +1731,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               additionalProperties: true,
               description: "Document data"
+            },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation & enhanced error handling)"
             }
           },
           required: ["doctype", "data"]
@@ -1685,6 +1760,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               additionalProperties: true,
               description: "Document data to update"
+            },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Update mode: 'standard' (default) or 'smart' (with validation & enhanced error handling)"
             }
           },
           required: ["doctype", "name", "data"]
@@ -2905,6 +2986,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       
       const doctype = String(request.params.arguments?.doctype);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
+      const mode = String(request.params.arguments?.mode || 'standard').toLowerCase();
       
       if (!doctype || !data) {
         throw new McpError(
@@ -2914,12 +2996,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
       
       try {
-        const result = await erpnext.createDocument(doctype, data);
+        const result = mode === 'smart'
+          ? await erpnext.createSmartDocument(doctype, data)
+          : await erpnext.createDocument(doctype, data);
+        let responseText = `Created ${doctype}: ${result.name}\n\n${JSON.stringify(result, null, 2)}`;
+        if (result.__warnings) {
+          responseText += `\n\n⚠️ Warnings:\n- ${result.__warnings.join('\n- ')}`;
+        }
         return {
-          content: [{
-            type: "text",
-            text: `Created ${doctype}: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
+          content: [{ type: "text", text: responseText }]
         };
       } catch (error: any) {
         return {
@@ -2946,6 +3031,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const doctype = String(request.params.arguments?.doctype);
       const name = String(request.params.arguments?.name);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
+      const mode = String(request.params.arguments?.mode || 'standard').toLowerCase();
       
       if (!doctype || !name || !data) {
         throw new McpError(
@@ -2955,12 +3041,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
       
       try {
-        const result = await erpnext.updateDocument(doctype, name, data);
+        const result = mode === 'smart'
+          ? await erpnext.updateSmartDocument(doctype, name, data)
+          : await erpnext.updateDocument(doctype, name, data);
+        let responseText = `Updated ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}`;
+        if (result.__warnings) {
+          responseText += `\n\n⚠️ Warnings:\n- ${result.__warnings.join('\n- ')}`;
+        }
         return {
-          content: [{
-            type: "text",
-            text: `Updated ${doctype} ${name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
+          content: [{ type: "text", text: responseText }]
         };
       } catch (error: any) {
         return {
