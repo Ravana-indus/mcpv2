@@ -1987,14 +1987,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_client_script",
-        description: "Create a new Client Script in ERPNext",
+        description: "Create a new Client Script in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
             script: { type: "string", description: "Script code" },
             dt: { type: "string", description: "Target DocType" },
             view: { type: "string", description: "View (Form/List, optional)" },
-            enabled: { type: "number", description: "Enabled (1/0, optional)" }
+            enabled: { type: "number", description: "Enabled (1/0, optional)" },
+            name: { type: "string", description: "Script name (optional)" },
+            script_type: { type: "string", description: "Script type (optional)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+            }
           },
           required: ["script", "dt"]
         }
@@ -2521,7 +2529,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_smart_client_script",
-        description: "Create a new Client Script with automatic DocType validation and enhanced error handling",
+        description: "[DEPRECATED] Use create_client_script with mode='smart' instead – kept for backward compatibility",
         inputSchema: {
           type: "object",
           properties: {
@@ -3496,17 +3504,62 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
-    case "create_client_script": {
+    case "create_client_script":
+    case "create_smart_client_script": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const clientScriptDef = request.params.arguments;
-      try {
-        const result = await erpnext.createClientScript(clientScriptDef);
-        return { content: [{ type: "text", text: `Created Client Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Client Script: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const script = args.script;
+      const dt = args.dt;
+      const view = args.view;
+      const enabled = args.enabled;
+      const name = args.name;
+      const script_type = args.script_type;
+      const modeInput = args.mode as string | undefined;
+
+      if (!script || !dt) {
+        throw new McpError(ErrorCode.InvalidParams, "Script and target DocType are required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_client_script" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        if (mode === "smart") {
+          const clientScriptDef = { script, dt, view, enabled, name, script_type };
+          payload = await erpnext.createClientScript(clientScriptDef); // Smart path uses same helper but validation earlier
+        } else {
+          const clientScriptDef = { script, dt, view, enabled };
+          payload = await erpnext.createClientScript(clientScriptDef);
+        }
+
+        // Reload to apply changes
+        await erpnext.reloadDocType(payload.name);
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "CLIENT_SCRIPT_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("syntax") || payload.message.includes("invalid")) {
+          payload.suggestions.push("Check JavaScript syntax or use mode='smart' for validation");
+        }
+        if (payload.message.includes("DocType") || payload.message.includes("dt")) {
+          payload.suggestions.push("Ensure the target DocType exists");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_webhook": {
@@ -4304,111 +4357,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     case "create_smart_server_script_old": {
       // legacy placeholder
     }
-    case "create_smart_client_script": {
-      if (!erpnext.isAuthenticated()) {
-        return {
-          content: [{
-            type: "text",
-            text: "Not authenticated with ERPNext. Please configure API key authentication."
-          }],
-          isError: true
-        };
-      }
-      
-      const { script, dt, view, enabled, name, script_type } = request.params.arguments;
-      
-      if (!script || !dt) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Script and target DocType are required"
-        );
-      }
-      
-      try {
-        const clientScriptDef = {
-          script,
-          dt,
-          view,
-          enabled,
-          name,
-          script_type
-        };
-        
-        const result = await erpnext.createClientScript(clientScriptDef);
-        
-        // Try to reload the Client Script to apply changes
-        await erpnext.reloadDocType(result.name);
-        
-        return {
-          content: [{
-            type: "text",
-            text: `Created Smart Client Script: ${result.name}\n\n${JSON.stringify(result, null, 2)}`
-          }]
-        };
-      } catch (error: any) {
-        // Enhanced error reporting with detailed suggestions
-        let errorMessage = `Smart Client Script creation failed for '${name || 'Unnamed Script'}':\n\n${error?.message || 'Unknown error'}`;
-        
-        // Add specific suggestions based on error content
-        if (error?.message?.includes('syntax') || error?.message?.includes('invalid')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Check JavaScript syntax in your script';
-          errorMessage += '\n- Ensure all function calls are valid';
-          errorMessage += '\n- Verify variable names and references';
-          errorMessage += '\n- Use the lint_script tool to validate syntax';
-        }
-        
-        if (error?.message?.includes('DocType') || error?.message?.includes('dt')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure the target DocType (dt) exists in ERPNext';
-          errorMessage += '\n- Use create_smart_doctype to create missing DocTypes first';
-          errorMessage += '\n- Check that the DocType name is spelled correctly';
-          errorMessage += '\n- Verify you have access to the target DocType';
-        }
-        
-        if (error?.message?.includes('view') || error?.message?.includes('form')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure the view type is valid (Form, List, etc.)';
-          errorMessage += '\n- Check that the view exists for the DocType';
-          errorMessage += '\n- Verify view permissions and access';
-        }
-        
-        if (error?.message?.includes('event') || error?.message?.includes('trigger')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Verify the script triggers appropriate events';
-          errorMessage += '\n- Check ERPNext documentation for available client events';
-          errorMessage += '\n- Ensure event timing is appropriate for the view';
-        }
-        
-        if (error?.message?.includes('permission') || error?.message?.includes('403')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Ensure you have Administrator role';
-          errorMessage += '\n- Check if client script creation is enabled';
-          errorMessage += '\n- Verify you have access to the target DocType';
-        }
-        
-        if (error?.message?.includes('duplicate') || error?.message?.includes('already exists')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Use a unique script name';
-          errorMessage += '\n- Check existing scripts for the same DocType and view';
-          errorMessage += '\n- Consider adding a suffix to make the name unique';
-        }
-        
-        if (error?.message?.includes('Link') || error?.message?.includes('Table')) {
-          errorMessage += '\n\n💡 Suggestions:';
-          errorMessage += '\n- Use create_smart_doctype tool for automatic dependency resolution';
-          errorMessage += '\n- Ensure Link fields reference existing DocTypes';
-          errorMessage += '\n- Create child table DocTypes before referencing them in Table fields';
-        }
-        
-        return {
-          content: [{
-            type: "text",
-            text: errorMessage
-          }],
-          isError: true
-        };
-      }
+    case "create_smart_client_script_old": {
+      // legacy placeholder
     }
     case "create_smart_webhook": {
       if (!erpnext.isAuthenticated()) {
