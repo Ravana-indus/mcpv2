@@ -1821,8 +1821,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation & enhanced error handling)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
             }
           },
           required: ["doctype", "data"]
@@ -1850,8 +1850,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Update mode: 'standard' (default) or 'smart' (with validation & enhanced error handling)"
+              default: "smart",
+              description: "Update mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
             }
           },
           required: ["doctype", "name", "data"]
@@ -1930,8 +1930,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   mode: {
                     type: "string",
                     enum: ["standard", "smart"],
-                    default: "standard",
-                    description: "Creation mode: 'standard' (default) or 'smart' (with dependency resolution)"
+                    default: "smart",
+                    description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & enhanced error handling."
                   }
                 },
                 required: ["fieldname", "label", "fieldtype"]
@@ -2099,8 +2099,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with chart/card integration)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs chart/card integration."
             }
           },
           required: ["name", "module"]
@@ -2121,8 +2121,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["document_type", "workflow_name", "states", "transitions"]
@@ -2145,8 +2145,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["script_type", "script"]
@@ -2167,8 +2167,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["script", "dt"]
@@ -2198,8 +2198,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation & security)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation & security."
             }
           },
           required: ["webhook_doctype", "webhook_url"]
@@ -2258,8 +2258,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             mode: {
               type: "string",
               enum: ["standard", "smart"],
-              default: "standard",
-              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+              default: "smart",
+              description: "Creation mode: 'smart' (default) or 'standard' (legacy). Smart mode performs validation."
             }
           },
           required: ["report_name", "ref_doctype", "report_type"]
@@ -3072,7 +3072,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       
       const doctype = String(request.params.arguments?.doctype);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
-      const mode = String(request.params.arguments?.mode || 'standard').toLowerCase();
+      const mode = String(request.params.arguments?.mode || 'smart').toLowerCase();
       
       if (!doctype || !data) {
         throw new McpError(
@@ -3117,7 +3117,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const doctype = String(request.params.arguments?.doctype);
       const name = String(request.params.arguments?.name);
       const data = request.params.arguments?.data as Record<string, any> | undefined;
-      const mode = String(request.params.arguments?.mode || 'standard').toLowerCase();
+      const mode = String(request.params.arguments?.mode || 'smart').toLowerCase();
       
       if (!doctype || !name || !data) {
         throw new McpError(
