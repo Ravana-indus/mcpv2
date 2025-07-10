@@ -1620,6 +1620,56 @@ class ERPNextClient {
 // Cache for doctype metadata
 const doctypeCache = new Map<string, any>();
 
+// Utility function to parse and format enriched error information
+function formatEnrichedError(error: any, operation: string): string {
+  let errorText = `${operation}: `;
+  
+  try {
+    const errorMessage = error?.message || 'Unknown error';
+    
+    // Try to extract the JSON error details from the error message
+    const jsonMatch = errorMessage.match(/Failed to [^:]+: ({.*})/s);
+    if (jsonMatch) {
+      const enrichedError = JSON.parse(jsonMatch[1]);
+      
+      // Format the enriched error information nicely
+      errorText += `\n\n🔍 **Error Details:**`;
+      errorText += `\n• Status: ${enrichedError.status} ${enrichedError.statusText}`;
+      errorText += `\n• Message: ${enrichedError.message}`;
+      
+      if (enrichedError.errorType) {
+        errorText += `\n• Type: ${enrichedError.errorType}`;
+      }
+      
+      if (enrichedError.traceback) {
+        errorText += `\n\n📋 **Server Traceback:**\n\`\`\`\n${enrichedError.traceback}\n\`\`\``;
+      }
+      
+      if (enrichedError.serverMessages && enrichedError.serverMessages.length > 0) {
+        errorText += `\n\n💬 **Server Messages:**`;
+        enrichedError.serverMessages.forEach((msg: string, i: number) => {
+          errorText += `\n${i + 1}. ${msg}`;
+        });
+      }
+      
+      if (enrichedError.suggestions && enrichedError.suggestions.length > 0) {
+        errorText += `\n\n💡 **Suggestions:**`;
+        enrichedError.suggestions.forEach((suggestion: string, i: number) => {
+          errorText += `\n${i + 1}. ${suggestion}`;
+        });
+      }
+    } else {
+      // Fallback if we can't parse the enriched error
+      errorText += errorMessage;
+    }
+  } catch (parseError) {
+    // If parsing fails, just use the original error message
+    errorText += error?.message || 'Unknown error';
+  }
+  
+  return errorText;
+}
+
 // Initialize ERPNext client
 const erpnext = new ERPNextClient();
 
@@ -3096,7 +3146,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return {
           content: [{
             type: "text",
-            text: `Failed to create ${doctype}: ${error?.message || 'Unknown error'}`
+            text: formatEnrichedError(error, `Failed to create ${doctype}`)
           }],
           isError: true
         };
@@ -3141,7 +3191,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         return {
           content: [{
             type: "text",
-            text: `Failed to update ${doctype} ${name}: ${error?.message || 'Unknown error'}`
+            text: formatEnrichedError(error, `Failed to update ${doctype} ${name}`)
           }],
           isError: true
         };
