@@ -2075,7 +2075,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_report",
-        description: "Create a new Report in ERPNext",
+        description: "Create a new Report in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
@@ -2083,7 +2083,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             ref_doctype: { type: "string", description: "Reference DocType" },
             report_type: { type: "string", description: "Report type (Query, Script, etc.)" },
             is_standard: { type: "string", description: "Is standard (Yes/No, optional)" },
-            json: { type: "object", description: "Report JSON (optional)" }
+            json: { type: "object", description: "Report JSON (optional)" },
+            query: { type: "string", description: "SQL query (for Query Report)" },
+            script: { type: "string", description: "Python script (for Script Report)" },
+            module: { type: "string", description: "Module name (optional)" },
+            disabled: { type: "number", description: "Disabled (1/0, optional)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+            }
           },
           required: ["report_name", "ref_doctype", "report_type"]
         }
@@ -2651,7 +2661,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_smart_report",
-        description: "Create a new Report with automatic DocType validation and query optimization",
+        description: "[DEPRECATED] Use create_report with mode='smart' instead – kept for backward compatibility",
         inputSchema: {
           type: "object",
           properties: {
@@ -3671,17 +3681,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
     }
 
-    case "create_report": {
+    case "create_report":
+    case "create_smart_report": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const reportDef = request.params.arguments;
-      try {
-        const result = await erpnext.createReport(reportDef);
-        return { content: [{ type: "text", text: `Created Report: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Report: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const report_name = args.report_name;
+      const ref_doctype = args.ref_doctype;
+      const report_type = args.report_type;
+      const is_standard = args.is_standard;
+      const json = args.json;
+      const query = args.query;
+      const script = args.script;
+      const module = args.module;
+      const disabled = args.disabled;
+      const modeInput = args.mode as string | undefined;
+
+      if (!report_name || !ref_doctype || !report_type) {
+        throw new McpError(ErrorCode.InvalidParams, "Report name, reference doctype, and report type are required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_report" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        const reportDef = { report_name, ref_doctype, report_type, is_standard, json, query, script, module, disabled };
+
+        // Smart mode could include extra validations; for now we use same helper
+        payload = await erpnext.createReport(reportDef);
+        // Optionally reload doctype   
+        await erpnext.reloadDocType(payload.name);
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "REPORT_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("DocType") || payload.message.includes("ref_doctype")) {
+          payload.suggestions.push("Ensure ref_doctype exists");
+        }
+        if (payload.message.includes("query") || payload.message.includes("SQL")) {
+          payload.suggestions.push("Validate SQL query syntax");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_chart": {
