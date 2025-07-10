@@ -2009,14 +2009,53 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_webhook",
-        description: "Create a new Webhook in ERPNext",
+        description: "Create a new Webhook in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
             webhook_doctype: { type: "string", description: "Target DocType" },
             webhook_url: { type: "string", description: "Webhook URL" },
             condition: { type: "string", description: "Condition (optional)" },
-            request_headers: { type: "object", description: "Request headers (optional)" }
+            request_headers: { type: "object", description: "Request headers (optional)" },
+            webhook_events: {
+              type: "array",
+              items: { type: "string" },
+              description: "Events to trigger webhook on (smart mode)"
+            },
+            request_structure: {
+              type: "string",
+              description: "Request structure (Form URL-Encoded/JSON, optional)"
+            },
+            timeout: { type: "number", description: "Timeout in seconds (optional)" },
+            enabled: { type: "number", description: "Enabled (1/0, optional)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation & security)"
+            }
+          },
+          required: ["webhook_doctype", "webhook_url"]
+        }
+      },
+      {
+        name: "create_smart_webhook",
+        description: "[DEPRECATED] Use create_webhook with mode='smart' instead – kept for backward compatibility",
+        inputSchema: {
+          type: "object",
+          properties: {
+            webhook_doctype: { type: "string", description: "Target DocType for webhook events" },
+            webhook_url: { type: "string", description: "Webhook URL to send data to" },
+            condition: { type: "string", description: "Condition for when to trigger webhook (optional)" },
+            request_headers: { type: "object", description: "Request headers as key-value pairs (optional)" },
+            webhook_events: {
+              type: "array",
+              items: { type: "string" },
+              description: "Events to trigger webhook on"
+            },
+            request_structure: { type: "string", description: "Request structure (Form URL-Encoded/JSON, optional)" },
+            timeout: { type: "number", description: "Timeout in seconds (optional, defaults to 5)" },
+            enabled: { type: "number", description: "Whether webhook is enabled (1/0, optional, defaults to 1)" }
           },
           required: ["webhook_doctype", "webhook_url"]
         }
@@ -3562,17 +3601,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
-    case "create_webhook": {
+    case "create_webhook":
+    case "create_smart_webhook": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const webhookDef = request.params.arguments;
-      try {
-        const result = await erpnext.createWebhook(webhookDef);
-        return { content: [{ type: "text", text: `Created Webhook: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Webhook: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const webhook_doctype = args.webhook_doctype;
+      const webhook_url = args.webhook_url;
+      const condition = args.condition;
+      const request_headers = args.request_headers;
+      const webhook_events = args.webhook_events;
+      const request_structure = args.request_structure;
+      const timeout = args.timeout;
+      const enabled = args.enabled;
+      const modeInput = args.mode as string | undefined;
+
+      if (!webhook_doctype || !webhook_url) {
+        throw new McpError(ErrorCode.InvalidParams, "Webhook doctype and URL are required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_webhook" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        if (mode === "smart") {
+          const webhookDef = { webhook_doctype, webhook_url, condition, request_headers, webhook_events, request_structure, timeout, enabled };
+          payload = await erpnext.createSmartWebhook(webhookDef);
+        } else {
+          const webhookDef: any = { webhook_doctype, webhook_url, condition, request_headers };
+          payload = await erpnext.createWebhook(webhookDef);
+        }
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "WEBHOOK_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("URL") || payload.message.includes("url")) {
+          payload.suggestions.push("Ensure webhook URL is valid and accessible");
+        }
+        if (payload.message.includes("DocType")) {
+          payload.suggestions.push("Ensure webhook_doctype exists");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Verify permissions or Administrator role");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_hook": {
