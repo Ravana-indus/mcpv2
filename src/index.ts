@@ -1941,14 +1941,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_workflow",
-        description: "Create a new Workflow in ERPNext",
+        description: "Create a new Workflow in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
             document_type: { type: "string", description: "Target DocType" },
             workflow_name: { type: "string", description: "Workflow name" },
             states: { type: "array", items: { type: "object" }, description: "States" },
-            transitions: { type: "array", items: { type: "object" }, description: "Transitions" }
+            transitions: { type: "array", items: { type: "object" }, description: "Transitions" },
+            send_email_alert: { type: "number", description: "Send email alerts on state changes (1/0, optional)" },
+            is_active: { type: "number", description: "Whether workflow is active (1/0, optional, defaults to 1)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with validation)"
+            }
           },
           required: ["document_type", "workflow_name", "states", "transitions"]
         }
@@ -2404,7 +2412,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_smart_workflow",
-        description: "Create a new Workflow with automatic DocType validation and state management",
+        description: "[DEPRECATED] Use create_workflow with mode='smart' instead – kept for backward compatibility",
         inputSchema: {
           type: "object",
           properties: {
@@ -3366,17 +3374,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
-    case "create_workflow": {
+    case "create_workflow":
+    case "create_smart_workflow": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const workflowDef = request.params.arguments;
-      try {
-        const result = await erpnext.createWorkflow(workflowDef);
-        return { content: [{ type: "text", text: `Created Workflow: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Workflow: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const document_type = args.document_type;
+      const workflow_name = args.workflow_name;
+      const states = args.states;
+      const transitions = args.transitions;
+      const send_email_alert = args.send_email_alert;
+      const is_active = args.is_active;
+      const modeInput = args.mode as string | undefined;
+
+      if (!document_type || !workflow_name || !states || !transitions) {
+        throw new McpError(ErrorCode.InvalidParams, "Document type, workflow name, states, and transitions are required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_workflow" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        if (mode === "smart") {
+          const workflowDef = { document_type, workflow_name, states, transitions, send_email_alert, is_active };
+          payload = await erpnext.createSmartWorkflow(workflowDef);
+        } else {
+          const workflowDef = { document_type, workflow_name, states, transitions };
+          payload = await erpnext.createWorkflow(workflowDef);
+        }
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "WF_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("DocType") || payload.message.includes("document_type")) {
+          payload.suggestions.push("Ensure the document_type exists or create it first");
+        }
+        if (payload.message.includes("state") || payload.message.includes("transition")) {
+          payload.suggestions.push("Validate states and transitions; use mode='smart' for validation");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Ensure you have Administrator role and workflow creation permissions");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_server_script": {
