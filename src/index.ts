@@ -1919,13 +1919,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_dashboard",
-        description: "Create a new Dashboard in ERPNext",
+        description: "Create a new Dashboard in ERPNext (unified – use `mode` = 'standard' | 'smart')",
         inputSchema: {
           type: "object",
           properties: {
             module: { type: "string", description: "Module name" },
             name: { type: "string", description: "Dashboard name" },
-            charts: { type: "array", items: { type: "object" }, description: "Charts (optional)" }
+            charts: { type: "array", items: { type: "object" }, description: "Charts (optional)" },
+            cards: { type: "array", items: { type: "object" }, description: "Dashboard cards (optional, smart mode only)" },
+            is_default: { type: "number", description: "Is default dashboard (1/0, optional)" },
+            is_standard: { type: "number", description: "Is standard dashboard (1/0, optional)" },
+            mode: {
+              type: "string",
+              enum: ["standard", "smart"],
+              default: "standard",
+              description: "Creation mode: 'standard' (default) or 'smart' (with chart/card integration)"
+            }
           },
           required: ["name", "module"]
         }
@@ -3304,17 +3313,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       }
     }
 
-    case "create_dashboard": {
+    case "create_dashboard":
+    case "create_smart_dashboard": {
       if (!erpnext.isAuthenticated()) {
         return { content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }], isError: true };
       }
-      const dashboardDef = request.params.arguments;
-      try {
-        const result = await erpnext.createDashboard(dashboardDef);
-        return { content: [{ type: "text", text: `Created Dashboard: ${result.name}\n\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (error: any) {
-        return { content: [{ type: "text", text: `Failed to create Dashboard: ${error?.message || 'Unknown error'}` }], isError: true };
+      const args = request.params.arguments;
+
+      const dashboard_name = args.dashboard_name || args.name;
+      const module = args.module;
+      const charts = args.charts;
+      const cards = args.cards;
+      const is_default = args.is_default;
+      const is_standard = args.is_standard;
+      const modeInput = args.mode as string | undefined;
+
+      if (!dashboard_name) {
+        throw new McpError(ErrorCode.InvalidParams, "Dashboard name is required");
       }
+
+      const mode = (modeInput || (request.params.name === "create_smart_dashboard" ? "smart" : "standard")).toLowerCase();
+
+      let payload: any;
+      let ok = true;
+      try {
+        if (mode === "smart") {
+          const dashboardDef = { dashboard_name, module, is_default, is_standard, cards, charts };
+          payload = await erpnext.createSmartDashboard(dashboardDef);
+        } else {
+          const dashboardDef: any = { name: dashboard_name, module };
+          if (charts) dashboardDef.charts = charts;
+          payload = await erpnext.createDashboard(dashboardDef);
+        }
+      } catch (innerErr: any) {
+        ok = false;
+        payload = {
+          code: "DASH_CREATE_FAILED",
+          message: innerErr?.message || "Unknown error",
+          suggestions: [] as string[]
+        };
+
+        if (payload.message.includes("chart") || payload.message.includes("report")) {
+          payload.suggestions.push("Ensure referenced charts/reports exist or use mode='smart'");
+        }
+        if (payload.message.includes("permission") || payload.message.includes("403")) {
+          payload.suggestions.push("Ensure you have Administrator role and necessary permissions");
+        }
+      }
+
+      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
+
+      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
     }
 
     case "create_workflow": {
