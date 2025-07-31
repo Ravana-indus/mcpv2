@@ -755,7 +755,8 @@ class ERPNextClient {
     const results: any = {
       workflow: null,
       errors: [],
-      warnings: []
+      warnings: [],
+      fallback_used: false
     };
 
     try {
@@ -797,11 +798,51 @@ class ERPNextClient {
         }
       }
 
-      // Create the workflow
-      const workflow = await this.createWorkflow(workflowDef);
-      results.workflow = workflow;
+      // Try to create the workflow using the standard method first
+      try {
+        const workflow = await this.createWorkflow(workflowDef);
+        results.workflow = workflow;
+        return results;
+      } catch (workflowError: any) {
+        // If standard workflow creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'workflow_creation_fallback',
+          message: `Standard workflow creation failed: ${workflowError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare workflow document for fallback creation
+        const workflowDoc = {
+          workflow_name: workflowDef.workflow_name,
+          document_type: workflowDef.document_type,
+          states: workflowDef.states,
+          transitions: workflowDef.transitions,
+          send_email_alert: workflowDef.send_email_alert || 0,
+          is_active: workflowDef.is_active !== undefined ? workflowDef.is_active : 1,
+          workflow_state_field: 'workflow_state',
+          allow_edit: 1
+        };
 
-      return results;
+        try {
+          // Create workflow as a document in the Workflow DocType
+          const fallbackWorkflow = await this.createDocument('Workflow', workflowDoc);
+          results.workflow = fallbackWorkflow;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Workflow created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'workflow_creation_failed',
+            standard_error: workflowError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard workflow creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Workflow creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
     } catch (error: any) {
       results.errors.push({
         type: 'workflow_creation_failed',
@@ -816,7 +857,8 @@ class ERPNextClient {
     const results: any = {
       script: null,
       errors: [],
-      warnings: []
+      warnings: [],
+      fallback_used: false
     };
 
     try {
@@ -852,11 +894,51 @@ class ERPNextClient {
         throw new Error('Script code cannot be empty');
       }
 
-      // Create the script
-      const script = await this.createServerScript(scriptDef);
-      results.script = script;
+      // Try to create the script using the standard method first
+      try {
+        const script = await this.createServerScript(scriptDef);
+        results.script = script;
+        return results;
+      } catch (scriptError: any) {
+        // If standard script creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'script_creation_fallback',
+          message: `Standard server script creation failed: ${scriptError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare script document for fallback creation
+        const scriptDoc = {
+          script_type: scriptDef.script_type,
+          script: scriptDef.script,
+          reference_doctype: scriptDef.reference_doctype,
+          name: scriptDef.name || `${scriptDef.script_type}_${Date.now()}`,
+          event: scriptDef.event,
+          api_method_name: scriptDef.api_method_name,
+          is_system_generated: scriptDef.is_system_generated || 0,
+          disabled: scriptDef.disabled !== undefined ? scriptDef.disabled : 0
+        };
 
-      return results;
+        try {
+          // Create script as a document in the Server Script DocType
+          const fallbackScript = await this.createDocument('Server Script', scriptDoc);
+          results.script = fallbackScript;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Server script created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'script_creation_failed',
+            standard_error: scriptError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard script creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Server Script creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
     } catch (error: any) {
       results.errors.push({
         type: 'script_creation_failed',
@@ -3707,13 +3789,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
         if (mode === "smart") {
           const workflowDef = { document_type, workflow_name, states, transitions, send_email_alert, is_active };
           payload = await erpnext.createSmartWorkflow(workflowDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Workflow '${workflow_name}' created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• Document Type: ${document_type}\n`;
+          responseText += `• States: ${payload.workflow?.states?.length || states.length}\n`;
+          responseText += `• Transitions: ${payload.workflow?.transitions?.length || transitions.length}\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Workflow was created using document creation method due to standard workflow API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.workflow) {
+            responseText += `\n📄 **Workflow Data:**\n\`\`\`json\n${JSON.stringify(payload.workflow, null, 2)}\n\`\`\``;
+          }
         } else {
           const workflowDef = { document_type, workflow_name, states, transitions };
           payload = await erpnext.createWorkflow(workflowDef);
+          responseText = `✅ Workflow '${workflow_name}' created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
         }
       } catch (innerErr: any) {
         ok = false;
@@ -3725,18 +3832,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
         if (payload.message.includes("DocType") || payload.message.includes("document_type")) {
           payload.suggestions.push("Ensure the document_type exists or create it first");
+          payload.suggestions.push("Use create_doctype to create the target DocType before creating the workflow");
         }
         if (payload.message.includes("state") || payload.message.includes("transition")) {
           payload.suggestions.push("Validate states and transitions; use mode='smart' for validation");
+          payload.suggestions.push("Ensure all states referenced in transitions exist");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
           payload.suggestions.push("Ensure you have Administrator role and workflow creation permissions");
+          payload.suggestions.push("Check if workflow feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Workflow creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_server_script":
@@ -3764,13 +3885,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
         if (mode === "smart") {
           const serverScriptDef = { script_type, script, reference_doctype, name, event, api_method_name, is_system_generated, disabled };
           payload = await erpnext.createSmartServerScript(serverScriptDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Server Script created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• Script Type: ${script_type}\n`;
+          if (reference_doctype) responseText += `• Reference DocType: ${reference_doctype}\n`;
+          if (event) responseText += `• Event: ${event}\n`;
+          if (api_method_name) responseText += `• API Method: ${api_method_name}\n`;
+          responseText += `• Script Length: ${script.length} characters\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Script was created using document creation method due to standard script API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.script) {
+            responseText += `\n📄 **Script Data:**\n\`\`\`json\n${JSON.stringify(payload.script, null, 2)}\n\`\`\``;
+          }
         } else {
           const serverScriptDef = { script_type, script, reference_doctype, name };
           payload = await erpnext.createServerScript(serverScriptDef);
+          responseText = `✅ Server Script created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
         }
       } catch (innerErr: any) {
         ok = false;
@@ -3780,20 +3928,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
           suggestions: [] as string[]
         };
 
-        if (payload.message.includes("syntax") || payload.message.includes("invalid")) {
-          payload.suggestions.push("Check script syntax or use mode='smart' for validation");
-        }
         if (payload.message.includes("DocType") || payload.message.includes("reference_doctype")) {
-          payload.suggestions.push("Ensure referenced DocType exists");
+          payload.suggestions.push("Ensure the reference DocType exists or create it first");
+          payload.suggestions.push("Use create_doctype to create the target DocType before creating the script");
+        }
+        if (payload.message.includes("script") || payload.message.includes("syntax")) {
+          payload.suggestions.push("Validate script syntax; use mode='smart' for validation");
+          payload.suggestions.push("Check Python syntax and ensure all imports are valid");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
-          payload.suggestions.push("Verify Administrator permissions");
+          payload.suggestions.push("Ensure you have Administrator role and script creation permissions");
+          payload.suggestions.push("Check if server script feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Server script creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_client_script":
