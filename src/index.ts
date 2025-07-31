@@ -703,10 +703,95 @@ class ERPNextClient {
       dashboard: null,
       charts: [],
       errors: [],
-      warnings: []
+      warnings: [],
+      fallback_used: false
     };
 
     try {
+      // Comprehensive validation
+      if (!dashboardDef.dashboard_name) {
+        throw new Error('Dashboard name is required');
+      }
+
+      // Validate chart definitions if provided
+      if (dashboardDef.charts && Array.isArray(dashboardDef.charts)) {
+        for (const chartDef of dashboardDef.charts) {
+          if (!chartDef.chart_name) {
+            results.warnings.push({
+              type: 'invalid_chart_definition',
+              message: 'Chart definition missing chart_name'
+            });
+            continue;
+          }
+
+          if (!chartDef.chart_type) {
+            results.warnings.push({
+              type: 'invalid_chart_definition',
+              chart_name: chartDef.chart_name,
+              message: 'Chart definition missing chart_type'
+            });
+            continue;
+          }
+
+          // Validate chart type
+          const validChartTypes = ['Bar', 'Line', 'Pie', 'Doughnut', 'Area', 'Column'];
+          if (!validChartTypes.includes(chartDef.chart_type)) {
+            results.warnings.push({
+              type: 'invalid_chart_type',
+              chart_name: chartDef.chart_name,
+              chart_type: chartDef.chart_type,
+              message: `Invalid chart type: ${chartDef.chart_type}. Valid types: ${validChartTypes.join(', ')}`
+            });
+          }
+
+          // Validate document type for charts
+          if (chartDef.document_type) {
+            const doctypeExists = await this.docTypeExists(chartDef.document_type);
+            if (!doctypeExists) {
+              results.warnings.push({
+                type: 'chart_doctype_not_found',
+                chart_name: chartDef.chart_name,
+                doctype: chartDef.document_type,
+                message: `Chart DocType '${chartDef.document_type}' does not exist`
+              });
+            }
+          }
+        }
+      }
+
+      // Validate card definitions if provided
+      if (dashboardDef.cards && Array.isArray(dashboardDef.cards)) {
+        for (const cardDef of dashboardDef.cards) {
+          if (!cardDef.card_name) {
+            results.warnings.push({
+              type: 'invalid_card_definition',
+              message: 'Card definition missing card_name'
+            });
+            continue;
+          }
+
+          if (!cardDef.card_type) {
+            results.warnings.push({
+              type: 'invalid_card_definition',
+              card_name: cardDef.card_name,
+              message: 'Card definition missing card_type'
+            });
+            continue;
+          }
+
+          // Validate card type
+          const validCardTypes = ['Chart', 'Report', 'Shortcut'];
+          if (!validCardTypes.includes(cardDef.card_type)) {
+            results.warnings.push({
+              type: 'invalid_card_type',
+              card_name: cardDef.card_name,
+              card_type: cardDef.card_type,
+              message: `Invalid card type: ${cardDef.card_type}. Valid types: ${validCardTypes.join(', ')}`
+            });
+          }
+        }
+      }
+
       // Create charts first if specified
       if (dashboardDef.charts && Array.isArray(dashboardDef.charts)) {
         for (const chartDef of dashboardDef.charts) {
@@ -736,11 +821,48 @@ class ERPNextClient {
         cards: dashboardDef.cards || []
       };
 
-      // Create the dashboard
-      const dashboard = await this.createDashboard(dashboardData);
-      results.dashboard = dashboard;
+      // Try to create the dashboard using the standard method first
+      try {
+        const dashboard = await this.createDashboard(dashboardData);
+        results.dashboard = dashboard;
+        return results;
+      } catch (dashboardError: any) {
+        // If standard dashboard creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'dashboard_creation_fallback',
+          message: `Standard dashboard creation failed: ${dashboardError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare dashboard document for fallback creation
+        const dashboardDoc = {
+          dashboard_name: dashboardData.dashboard_name,
+          module: dashboardData.module,
+          is_default: dashboardData.is_default,
+          is_standard: dashboardData.is_standard,
+          cards: dashboardData.cards
+        };
 
-      return results;
+        try {
+          // Create dashboard as a document in the Dashboard DocType
+          const fallbackDashboard = await this.createDocument('Dashboard', dashboardDoc);
+          results.dashboard = fallbackDashboard;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Dashboard created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'dashboard_creation_failed',
+            standard_error: dashboardError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard dashboard creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Dashboard creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
     } catch (error: any) {
       results.errors.push({
         type: 'dashboard_creation_failed',
@@ -953,13 +1075,29 @@ class ERPNextClient {
     const results: any = {
       webhook: null,
       errors: [],
-      warnings: []
+      warnings: [],
+      fallback_used: false
     };
 
     try {
-      // Validate URL format
+      // Comprehensive validation
+      if (!webhookDef.webhook_url) {
+        throw new Error('Webhook URL is required');
+      }
+
+      if (!webhookDef.webhook_doctype) {
+        throw new Error('Webhook DocType is required');
+      }
+
+      // Validate URL format and security
       try {
-        new URL(webhookDef.webhook_url);
+        const url = new URL(webhookDef.webhook_url);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+          results.warnings.push({
+            type: 'insecure_protocol',
+            message: 'Consider using HTTPS for production webhooks'
+          });
+        }
       } catch {
         throw new Error('Invalid webhook URL format');
       }
@@ -974,26 +1112,210 @@ class ERPNextClient {
         });
       }
 
-      // Set defaults
+      // Validate webhook events
+      const validEvents = ['after_insert', 'after_update', 'after_delete', 'after_submit', 'after_cancel'];
+      if (webhookDef.webhook_events) {
+        for (const event of webhookDef.webhook_events) {
+          if (!validEvents.includes(event)) {
+            results.warnings.push({
+              type: 'invalid_event',
+              event: event,
+              message: `Invalid webhook event: ${event}. Valid events: ${validEvents.join(', ')}`
+            });
+          }
+        }
+      }
+
+      // Validate request structure
+      const validStructures = ['Form URL-Encoded', 'JSON'];
+      if (webhookDef.request_structure && !validStructures.includes(webhookDef.request_structure)) {
+        results.warnings.push({
+          type: 'invalid_request_structure',
+          structure: webhookDef.request_structure,
+          message: `Invalid request structure: ${webhookDef.request_structure}. Valid structures: ${validStructures.join(', ')}`
+        });
+      }
+
+      // Set defaults with validation
       const webhookData = {
         ...webhookDef,
         webhook_events: webhookDef.webhook_events || ['after_insert'],
         request_structure: webhookDef.request_structure || 'Form URL-Encoded',
-        timeout: webhookDef.timeout || 5,
+        timeout: Math.min(Math.max(webhookDef.timeout || 5, 1), 60), // Between 1-60 seconds
         enabled: webhookDef.enabled !== undefined ? webhookDef.enabled : 1
       };
 
-      // Create the webhook
-      const webhook = await this.createWebhook(webhookData);
-      results.webhook = webhook;
+      // Try to create the webhook using the standard method first
+      try {
+        const webhook = await this.createWebhook(webhookData);
+        results.webhook = webhook;
+        return results;
+      } catch (webhookError: any) {
+        // If standard webhook creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'webhook_creation_fallback',
+          message: `Standard webhook creation failed: ${webhookError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare webhook document for fallback creation
+        const webhookDoc = {
+          webhook_doctype: webhookData.webhook_doctype,
+          webhook_url: webhookData.webhook_url,
+          webhook_events: webhookData.webhook_events,
+          request_structure: webhookData.request_structure,
+          timeout: webhookData.timeout,
+          enabled: webhookData.enabled,
+          condition: webhookData.condition,
+          request_headers: webhookData.request_headers
+        };
 
-      return results;
+        try {
+          // Create webhook as a document in the Webhook DocType
+          const fallbackWebhook = await this.createDocument('Webhook', webhookDoc);
+          results.webhook = fallbackWebhook;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Webhook created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'webhook_creation_failed',
+            standard_error: webhookError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard webhook creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Webhook creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
     } catch (error: any) {
       results.errors.push({
         type: 'webhook_creation_failed',
         error: error.message
       });
       throw new Error(`Smart Webhook creation failed: ${JSON.stringify(results, null, 2)}`);
+    }
+  }
+
+  // Smart client script creation with validation and fallback
+  async createSmartClientScript(scriptDef: any): Promise<any> {
+    const results: any = {
+      script: null,
+      errors: [],
+      warnings: [],
+      fallback_used: false
+    };
+
+    try {
+      // Comprehensive validation
+      if (!scriptDef.script) {
+        throw new Error('Script code is required');
+      }
+
+      if (!scriptDef.dt) {
+        throw new Error('Target DocType is required');
+      }
+
+      // Validate script type
+      const validScriptTypes = ['DocType', 'Page', 'Report'];
+      if (scriptDef.script_type && !validScriptTypes.includes(scriptDef.script_type)) {
+        throw new Error(`Invalid script type. Must be one of: ${validScriptTypes.join(', ')}`);
+      }
+
+      // Validate view
+      const validViews = ['Form', 'List', 'Tree', 'Kanban', 'Calendar'];
+      if (scriptDef.view && !validViews.includes(scriptDef.view)) {
+        results.warnings.push({
+          type: 'invalid_view',
+          view: scriptDef.view,
+          message: `Invalid view: ${scriptDef.view}. Valid views: ${validViews.join(', ')}`
+        });
+      }
+
+      // Check if target DocType exists
+      const doctypeExists = await this.docTypeExists(scriptDef.dt);
+      if (!doctypeExists) {
+        results.warnings.push({
+          type: 'target_doctype_not_found',
+          doctype: scriptDef.dt,
+          message: `Target DocType '${scriptDef.dt}' does not exist`
+        });
+      }
+
+      // Basic JavaScript syntax validation
+      try {
+        // Simple validation - check for basic syntax errors
+        if (scriptDef.script.includes('function') && !scriptDef.script.includes('{')) {
+          results.warnings.push({
+            type: 'syntax_warning',
+            message: 'Script appears to have incomplete function definition'
+          });
+        }
+      } catch (syntaxError: any) {
+        results.warnings.push({
+          type: 'syntax_validation_failed',
+          message: `Syntax validation warning: ${syntaxError.message}`
+        });
+      }
+
+      // Set defaults
+      const clientScriptData = {
+        ...scriptDef,
+        enabled: scriptDef.enabled !== undefined ? scriptDef.enabled : 1,
+        name: scriptDef.name || `Client Script ${Date.now()}`
+      };
+
+      // Try to create the client script using the standard method first
+      try {
+        const script = await this.createClientScript(clientScriptData);
+        results.script = script;
+        return results;
+      } catch (scriptError: any) {
+        // If standard client script creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'script_creation_fallback',
+          message: `Standard client script creation failed: ${scriptError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare client script document for fallback creation
+        const clientScriptDoc = {
+          script: clientScriptData.script,
+          dt: clientScriptData.dt,
+          view: clientScriptData.view,
+          enabled: clientScriptData.enabled,
+          name: clientScriptData.name,
+          script_type: clientScriptData.script_type
+        };
+
+        try {
+          // Create client script as a document in the Client Script DocType
+          const fallbackScript = await this.createDocument('Client Script', clientScriptDoc);
+          results.script = fallbackScript;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Client script created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'script_creation_failed',
+            standard_error: scriptError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard client script creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Client Script creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
+    } catch (error: any) {
+      results.errors.push({
+        type: 'script_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Client Script creation failed: ${JSON.stringify(results, null, 2)}`);
     }
   }
 
@@ -1044,6 +1366,136 @@ class ERPNextClient {
       return response.data.data;
     } catch (error: any) {
       throw new Error(`Failed to create Hook: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  // Smart report creation with validation and fallback
+  async createSmartReport(reportDef: any): Promise<any> {
+    const results: any = {
+      report: null,
+      errors: [],
+      warnings: [],
+      fallback_used: false
+    };
+
+    try {
+      // Comprehensive validation
+      if (!reportDef.report_name) {
+        throw new Error('Report name is required');
+      }
+
+      if (!reportDef.ref_doctype) {
+        throw new Error('Reference DocType is required');
+      }
+
+      if (!reportDef.report_type) {
+        throw new Error('Report type is required');
+      }
+
+      // Validate report type
+      const validReportTypes = ['Query Report', 'Script Report', 'Custom Report', 'Report Builder'];
+      if (!validReportTypes.includes(reportDef.report_type)) {
+        throw new Error(`Invalid report type. Must be one of: ${validReportTypes.join(', ')}`);
+      }
+
+      // Check if reference DocType exists
+      const doctypeExists = await this.docTypeExists(reportDef.ref_doctype);
+      if (!doctypeExists) {
+        results.warnings.push({
+          type: 'reference_doctype_not_found',
+          doctype: reportDef.ref_doctype,
+          message: `Reference DocType '${reportDef.ref_doctype}' does not exist`
+        });
+      }
+
+      // Validate report type specific requirements
+      if (reportDef.report_type === 'Query Report') {
+        if (!reportDef.query) {
+          results.warnings.push({
+            type: 'missing_query',
+            message: 'Query Report requires a SQL query'
+          });
+        }
+      }
+
+      if (reportDef.report_type === 'Script Report') {
+        if (!reportDef.script) {
+          results.warnings.push({
+            type: 'missing_script',
+            message: 'Script Report requires a Python script'
+          });
+        }
+      }
+
+      // Validate is_standard field
+      if (reportDef.is_standard && !['Yes', 'No'].includes(reportDef.is_standard)) {
+        results.warnings.push({
+          type: 'invalid_is_standard',
+          value: reportDef.is_standard,
+          message: 'is_standard should be "Yes" or "No"'
+        });
+      }
+
+      // Set defaults
+      const reportData = {
+        ...reportDef,
+        is_standard: reportDef.is_standard || 'No',
+        disabled: reportDef.disabled !== undefined ? reportDef.disabled : 0,
+        module: reportDef.module || 'Custom'
+      };
+
+      // Try to create the report using the standard method first
+      try {
+        const report = await this.createReport(reportData);
+        results.report = report;
+        return results;
+      } catch (reportError: any) {
+        // If standard report creation fails, try fallback to document creation
+        results.warnings.push({
+          type: 'report_creation_fallback',
+          message: `Standard report creation failed: ${reportError.message}. Attempting fallback to document creation.`
+        });
+        
+        // Prepare report document for fallback creation
+        const reportDoc = {
+          report_name: reportData.report_name,
+          ref_doctype: reportData.ref_doctype,
+          report_type: reportData.report_type,
+          is_standard: reportData.is_standard,
+          disabled: reportData.disabled,
+          module: reportData.module,
+          json: reportData.json,
+          query: reportData.query,
+          script: reportData.script
+        };
+
+        try {
+          // Create report as a document in the Report DocType
+          const fallbackReport = await this.createDocument('Report', reportDoc);
+          results.report = fallbackReport;
+          results.fallback_used = true;
+          results.warnings.push({
+            type: 'fallback_success',
+            message: 'Report created successfully using document creation fallback method.'
+          });
+          return results;
+        } catch (fallbackError: any) {
+          // If fallback also fails, throw comprehensive error
+          results.errors.push({
+            type: 'report_creation_failed',
+            standard_error: reportError.message,
+            fallback_error: fallbackError.message,
+            message: 'Both standard report creation and fallback document creation failed'
+          });
+          throw new Error(`Smart Report creation failed: ${JSON.stringify(results, null, 2)}`);
+        }
+      }
+    } catch (error: any) {
+      results.errors.push({
+        type: 'report_creation_failed',
+        error: error.message
+      });
+      throw new Error(`Smart Report creation failed: ${JSON.stringify(results, null, 2)}`);
     }
   }
 
@@ -3736,14 +4188,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
         if (mode === "smart") {
           const dashboardDef = { dashboard_name, module, is_default, is_standard, cards, charts };
           payload = await erpnext.createSmartDashboard(dashboardDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Dashboard '${dashboard_name}' created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• Module: ${module || 'Custom'}\n`;
+          if (charts && charts.length > 0) {
+            responseText += `• Charts Created: ${payload.charts?.length || charts.length}\n`;
+          }
+          if (cards && cards.length > 0) {
+            responseText += `• Cards: ${cards.length}\n`;
+          }
+          if (is_default) responseText += `• Default Dashboard: Yes\n`;
+          if (is_standard) responseText += `• Standard Dashboard: Yes\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Dashboard was created using document creation method due to standard dashboard API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.dashboard) {
+            responseText += `\n📄 **Dashboard Data:**\n\`\`\`json\n${JSON.stringify(payload.dashboard, null, 2)}\n\`\`\``;
+          }
         } else {
           const dashboardDef: any = { name: dashboard_name, module };
           if (charts) dashboardDef.charts = charts;
           payload = await erpnext.createDashboard(dashboardDef);
+          responseText = `✅ Dashboard '${dashboard_name}' created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
         }
       } catch (innerErr: any) {
         ok = false;
@@ -3755,15 +4238,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
         if (payload.message.includes("chart") || payload.message.includes("report")) {
           payload.suggestions.push("Ensure referenced charts/reports exist or use mode='smart'");
+          payload.suggestions.push("Create charts and reports before creating the dashboard");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
           payload.suggestions.push("Ensure you have Administrator role and necessary permissions");
+          payload.suggestions.push("Check if dashboard feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Dashboard creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_workflow":
@@ -3981,17 +4477,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
         if (mode === "smart") {
           const clientScriptDef = { script, dt, view, enabled, name, script_type };
-          payload = await erpnext.createClientScript(clientScriptDef); // Smart path uses same helper but validation earlier
+          payload = await erpnext.createSmartClientScript(clientScriptDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Client Script created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• Target DocType: ${dt}\n`;
+          if (view) responseText += `• View: ${view}\n`;
+          if (script_type) responseText += `• Script Type: ${script_type}\n`;
+          responseText += `• Script Length: ${script.length} characters\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Client script was created using document creation method due to standard script API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.script) {
+            responseText += `\n📄 **Script Data:**\n\`\`\`json\n${JSON.stringify(payload.script, null, 2)}\n\`\`\``;
+          }
         } else {
           const clientScriptDef = { script, dt, view, enabled };
           payload = await erpnext.createClientScript(clientScriptDef);
+          responseText = `✅ Client Script created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
         }
 
         // Reload to apply changes
-        await erpnext.reloadDocType(payload.name);
+        if (payload && payload.name) {
+          await erpnext.reloadDocType(payload.name);
+        }
       } catch (innerErr: any) {
         ok = false;
         payload = {
@@ -4002,18 +4526,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
         if (payload.message.includes("syntax") || payload.message.includes("invalid")) {
           payload.suggestions.push("Check JavaScript syntax or use mode='smart' for validation");
+          payload.suggestions.push("Ensure all functions are properly closed and brackets match");
         }
         if (payload.message.includes("DocType") || payload.message.includes("dt")) {
           payload.suggestions.push("Ensure the target DocType exists");
+          payload.suggestions.push("Use create_doctype to create the target DocType first");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
           payload.suggestions.push("Verify permissions or Administrator role");
+          payload.suggestions.push("Check if client script feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Client script creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_webhook":
@@ -4041,13 +4579,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
         if (mode === "smart") {
           const webhookDef = { webhook_doctype, webhook_url, condition, request_headers, webhook_events, request_structure, timeout, enabled };
           payload = await erpnext.createSmartWebhook(webhookDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Webhook created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• DocType: ${webhook_doctype}\n`;
+          responseText += `• URL: ${webhook_url}\n`;
+          if (webhook_events) responseText += `• Events: ${webhook_events.join(', ')}\n`;
+          if (request_structure) responseText += `• Request Structure: ${request_structure}\n`;
+          if (timeout) responseText += `• Timeout: ${timeout}s\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Webhook was created using document creation method due to standard webhook API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.webhook) {
+            responseText += `\n📄 **Webhook Data:**\n\`\`\`json\n${JSON.stringify(payload.webhook, null, 2)}\n\`\`\``;
+          }
         } else {
           const webhookDef: any = { webhook_doctype, webhook_url, condition, request_headers };
           payload = await erpnext.createWebhook(webhookDef);
+          responseText = `✅ Webhook created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
         }
       } catch (innerErr: any) {
         ok = false;
@@ -4059,18 +4624,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
         if (payload.message.includes("URL") || payload.message.includes("url")) {
           payload.suggestions.push("Ensure webhook URL is valid and accessible");
+          payload.suggestions.push("Check URL format and protocol (http/https)");
         }
         if (payload.message.includes("DocType")) {
           payload.suggestions.push("Ensure webhook_doctype exists");
+          payload.suggestions.push("Use create_doctype to create the target DocType first");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
           payload.suggestions.push("Verify permissions or Administrator role");
+          payload.suggestions.push("Check if webhook feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Webhook creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_hook": {
@@ -4124,13 +4703,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
       let payload: any;
       let ok = true;
+      let responseText = "";
+      
       try {
-        const reportDef = { report_name, ref_doctype, report_type, is_standard, json, query, script, module, disabled };
+        if (mode === "smart") {
+          const reportDef = { report_name, ref_doctype, report_type, is_standard, json, query, script, module, disabled };
+          payload = await erpnext.createSmartReport(reportDef);
+          
+          // Format response with detailed information
+          responseText = `✅ Report '${report_name}' created successfully!\n\n`;
+          responseText += `📋 **Details:**\n`;
+          responseText += `• Reference DocType: ${ref_doctype}\n`;
+          responseText += `• Report Type: ${report_type}\n`;
+          if (module) responseText += `• Module: ${module}\n`;
+          if (is_standard) responseText += `• Standard: ${is_standard}\n`;
+          if (disabled) responseText += `• Disabled: Yes\n`;
+          
+          if (payload.fallback_used) {
+            responseText += `\n🔄 **Fallback Used:** Report was created using document creation method due to standard report API limitations.\n`;
+          }
+          
+          if (payload.warnings && payload.warnings.length > 0) {
+            responseText += `\n⚠️ **Warnings:**\n`;
+            payload.warnings.forEach((warning: any) => {
+              responseText += `• ${warning.message}\n`;
+            });
+          }
+          
+          if (payload.report) {
+            responseText += `\n📄 **Report Data:**\n\`\`\`json\n${JSON.stringify(payload.report, null, 2)}\n\`\`\``;
+          }
+        } else {
+          const reportDef = { report_name, ref_doctype, report_type, is_standard, json, query, script, module, disabled };
+          payload = await erpnext.createReport(reportDef);
+          responseText = `✅ Report '${report_name}' created successfully!\n\n${JSON.stringify(payload, null, 2)}`;
+        }
 
-        // Smart mode could include extra validations; for now we use same helper
-        payload = await erpnext.createReport(reportDef);
         // Optionally reload doctype   
-        await erpnext.reloadDocType(payload.name);
+        if (payload && payload.name) {
+          await erpnext.reloadDocType(payload.name);
+        }
       } catch (innerErr: any) {
         ok = false;
         payload = {
@@ -4141,18 +4753,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
         if (payload.message.includes("DocType") || payload.message.includes("ref_doctype")) {
           payload.suggestions.push("Ensure ref_doctype exists");
+          payload.suggestions.push("Use create_doctype to create the target DocType first");
         }
         if (payload.message.includes("query") || payload.message.includes("SQL")) {
           payload.suggestions.push("Validate SQL query syntax");
+          payload.suggestions.push("Check for proper table and column references");
         }
         if (payload.message.includes("permission") || payload.message.includes("403")) {
           payload.suggestions.push("Verify permissions or Administrator role");
+          payload.suggestions.push("Check if report feature is enabled in ERPNext");
+        }
+        if (payload.message.includes("fallback")) {
+          payload.suggestions.push("The system attempted fallback to document creation but it also failed");
+          payload.suggestions.push("Check ERPNext server logs for detailed error information");
+        }
+        
+        responseText = `❌ Report creation failed!\n\n`;
+        responseText += `🔍 **Error:** ${payload.message}\n\n`;
+        if (payload.suggestions.length > 0) {
+          responseText += `💡 **Suggestions:**\n`;
+          payload.suggestions.forEach((suggestion: string) => {
+            responseText += `• ${suggestion}\n`;
+          });
         }
       }
 
-      const responseBody = JSON.stringify({ ok, mode, ... (ok ? { data: payload } : { error: payload }) }, null, 2);
-
-      return { content: [{ type: "text", text: responseBody }], isError: ok ? undefined : true };
+      return { content: [{ type: "text", text: responseText }], isError: ok ? undefined : true };
     }
 
     case "create_chart": {
