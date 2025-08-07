@@ -19,7 +19,8 @@
     "start": "node build/index.js",
     "start:http": "node build/http-server.js",
     "dev": "npm run build && npm run start:http",
-    "test": "node test-http-server.js"
+    "test": "node test-http-server.js",
+    "diagnose": "node diagnose.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
