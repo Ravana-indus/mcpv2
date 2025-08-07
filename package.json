@@ -5,22 +5,28 @@
   "private": true,
   "type": "module",
   "bin": {
-    "erpnext-server": "./build/index.js"
+    "erpnext-server": "./build/index.js",
+    "erpnext-http-server": "./build/http-server.js"
   },
   "files": [
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\" && node -e \"require('fs').chmodSync('build/http-server.js', '755')\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "start": "node build/index.js",
+    "start:http": "node build/http-server.js",
+    "dev": "npm run build && npm run start:http",
+    "test": "node test-http-server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
     "axios": "^1.8.4",
     "express": "^5.1.0",
-    "json-rpc-2.0": "^1.7.0"
+    "json-rpc-2.0": "^1.7.0",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
