@@ -190,6 +190,55 @@ app.post('/mcp/stream', (req: Request, res: Response) => {
   sendStreamingMCPRequest(mcp, jsonrpcReq, res);
 });
 
+// NDJSON streaming endpoint for clients that do not support SSE
+app.post('/mcp/ndjson', (req: Request, res: Response) => {
+  const { id, method, params } = req.body as {
+    id: string | number;
+    method: string;
+    params?: any;
+  };
+
+  const config = getERPNextConfig(req);
+  const mcp = createMCPProcess(config);
+
+  const jsonrpcReq: JSONRPCRequest = {
+    jsonrpc: '2.0',
+    id,
+    method,
+    params,
+  };
+
+  // Set headers for NDJSON streaming
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Write the request to MCP
+  mcp.stdin.write(JSON.stringify(jsonrpcReq) + '\n');
+
+  // Handle MCP responses
+  const onData = (chunk: Buffer) => {
+    try {
+      const data = chunk.toString().trim();
+      if (data) {
+        // Write each JSON object as a line
+        res.write(data + '\n');
+      }
+    } catch (e) {
+      console.error('Error processing NDJSON response:', e);
+    }
+  };
+
+  mcp.stdout.on('data', onData);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    mcp.stdout.off('data', onData);
+    mcp.kill();
+  });
+});
+
 // Tools endpoint for Langflow/Lobechat compatibility
 app.post('/tools', async (req: Request, res: Response) => {
   const config = getERPNextConfig(req);
