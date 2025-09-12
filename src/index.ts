@@ -11,6 +11,56 @@
  * - Creating DocTypes and Child Tables
  */
 
+// TypeScript interfaces for better type safety
+interface FieldDefinition {
+  fieldname: string;
+  label: string;
+  fieldtype: string;
+  options?: string;
+  reqd?: number;
+  hidden?: number;
+  default?: any;
+  in_list_view?: number;
+  read_only?: number;
+  unique?: number;
+  description?: string;
+  depends_on?: string;
+  permlevel?: number;
+  precision?: string;
+  length?: number;
+  translatable?: number;
+}
+
+interface DocTypeDefinition {
+  name: string;
+  module?: string;
+  custom?: number;
+  istable?: number;
+  is_table?: number;  // For compatibility
+  is_child_table?: number;
+  is_tree?: number;
+  is_submittable?: number;
+  track_changes?: number;
+  allow_rename?: number;
+  autoname?: string;
+  naming_rule?: string;
+  title_field?: string;
+  fields?: FieldDefinition[];
+  permissions?: any[];
+  actions?: any[];
+  links?: any[];
+}
+
+interface ErrorDetails {
+  message: string;
+  status?: number;
+  statusText?: string;
+  data?: any;
+  doctypeName?: string;
+  fields?: number;
+  suggestions: string[];
+}
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -30,6 +80,10 @@ class ERPNextClient {
   private baseUrl: string;
   private axiosInstance: AxiosInstance;
   private authenticated: boolean = false;
+  private maxRetries: number = 3;
+  private retryDelay: number = 1000; // milliseconds
+  private doctypeCache: Map<string, { data: any; timestamp: number }> = new Map();
+  private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes cache timeout
 
   constructor() {
     // Get ERPNext configuration from environment variables
@@ -52,6 +106,41 @@ class ERPNextClient {
         'Accept': 'application/json'
       }
     });
+    
+    // Add retry interceptor for transient failures
+    this.axiosInstance.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const config = error.config;
+        
+        // Initialize retry count
+        if (!config || !config.retryCount) {
+          config.retryCount = 0;
+        }
+        
+        // Check if we should retry (network errors, 5xx errors, 429 rate limit)
+        const shouldRetry = config.retryCount < this.maxRetries && 
+                          (error.code === 'ECONNABORTED' || 
+                           error.code === 'ETIMEDOUT' ||
+                           error.code === 'ENOTFOUND' ||
+                           error.code === 'ECONNREFUSED' ||
+                           (error.response && (error.response.status >= 500 || error.response.status === 429)));
+        
+        if (shouldRetry) {
+          config.retryCount += 1;
+          
+          // Exponential backoff with jitter
+          const delay = this.retryDelay * Math.pow(2, config.retryCount - 1) + Math.random() * 1000;
+          
+          console.log(`Retrying request (attempt ${config.retryCount}/${this.maxRetries}) after ${Math.round(delay)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          return this.axiosInstance(config);
+        }
+        
+        return Promise.reject(error);
+      }
+    );
     
     // Configure authentication if credentials provided
     const apiKey = process.env.ERPNEXT_API_KEY;
@@ -280,18 +369,45 @@ class ERPNextClient {
     }
   }
 
-  // Get DocType metadata including fields
+  // Get DocType metadata including fields (with caching)
   async getDocTypeMeta(doctype: string): Promise<any> {
     try {
+      // Check cache first
+      const cacheKey = `doctype_meta_${doctype}`;
+      const cached = this.doctypeCache.get(cacheKey);
+      
+      if (cached && (Date.now() - cached.timestamp < this.cacheTimeout)) {
+        console.log(`Using cached metadata for DocType: ${doctype}`);
+        return cached.data;
+      }
+      
+      // Fetch from API if not in cache or expired
       const response = await this.axiosInstance.get(`/api/resource/DocType/${doctype}`);
-      return response.data.data;
+      const data = response.data.data;
+      
+      // Update cache
+      this.doctypeCache.set(cacheKey, {
+        data: data,
+        timestamp: Date.now()
+      });
+      
+      return data;
     } catch (error: any) {
       throw new Error(`Failed to get DocType metadata for ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
     }
   }
+  
+  // Clear cache for a specific DocType or all
+  clearDocTypeCache(doctype?: string): void {
+    if (doctype) {
+      this.doctypeCache.delete(`doctype_meta_${doctype}`);
+    } else {
+      this.doctypeCache.clear();
+    }
+  }
 
   // Create a new DocType
-  async createDocType(doctypeDefinition: any): Promise<any> {
+  async createDocType(doctypeDefinition: DocTypeDefinition): Promise<any> {
     try {
       // Prepare the DocType definition with required defaults
       const doctype = {
@@ -300,7 +416,8 @@ class ERPNextClient {
         // Set some required defaults if not provided
         module: doctypeDefinition.module || "Custom",
         custom: doctypeDefinition.custom !== undefined ? doctypeDefinition.custom : 1,
-        is_table: doctypeDefinition.is_table || 0,
+        // ERPNext uses 'istable' not 'is_table', handle both for compatibility
+        istable: doctypeDefinition.istable || doctypeDefinition.is_table || 0,
         is_tree: doctypeDefinition.is_tree || 0,
         is_submittable: doctypeDefinition.is_submittable || 0,
         is_child_table: doctypeDefinition.is_child_table || 0,
@@ -310,8 +427,8 @@ class ERPNextClient {
         fields: doctypeDefinition.fields || []
       };
 
-      // Add default fields if not provided
-      if (!doctype.fields || doctype.fields.length === 0) {
+      // Add default fields if not provided (but not for child tables)
+      if ((!doctype.fields || doctype.fields.length === 0) && !doctype.istable && !doctype.is_child_table) {
         doctype.fields = [
           {
             fieldname: "naming_series",
@@ -325,7 +442,7 @@ class ERPNextClient {
       }
 
       // If it's a child table, add required parent fields
-      if (doctype.is_table || doctype.is_child_table) {
+      if (doctype.istable || doctype.is_child_table) {
         const parentFields = [
           {
             fieldname: "parent",
@@ -361,6 +478,9 @@ class ERPNextClient {
       });
 
       const createdDocType = response.data.data;
+      
+      // Clear cache for this DocType as it's newly created
+      this.clearDocTypeCache(createdDocType.name);
 
       // Set default permissions for Administrator (RWCD - Read, Write, Create, Delete)
       try {
@@ -392,15 +512,7 @@ class ERPNextClient {
       return createdDocType;
     } catch (error: any) {
       // Enhanced error handling with detailed information
-      const errorDetails: {
-        message: string;
-        status?: number;
-        statusText?: string;
-        data?: any;
-        doctypeName: string;
-        fields: number;
-        suggestions: string[];
-      } = {
+      const errorDetails: ErrorDetails = {
         message: error?.response?.data?.message || error?.message || 'Unknown error',
         status: error?.response?.status,
         statusText: error?.response?.statusText,
@@ -449,20 +561,72 @@ class ERPNextClient {
   }
 
   // Create a Child Table DocType specifically
-  async createChildTable(childTableDefinition: any): Promise<any> {
+  async createChildTable(childTableDefinition: DocTypeDefinition): Promise<any> {
     try {
-      // Ensure it's marked as a child table
+      // Validate field definitions
+      if (childTableDefinition.fields) {
+        for (const field of childTableDefinition.fields) {
+          if (!field.fieldname || !field.label || !field.fieldtype) {
+            throw new Error(`Invalid field definition: fieldname, label, and fieldtype are required. Got: ${JSON.stringify(field)}`);
+          }
+          
+          // Validate fieldtype
+          const validFieldTypes = ['Data', 'Text', 'Int', 'Float', 'Currency', 'Date', 'Datetime', 
+                                   'Time', 'Select', 'Link', 'Check', 'Small Text', 'Long Text', 
+                                   'Code', 'Text Editor', 'Attach', 'Attach Image', 'Color', 
+                                   'Barcode', 'Geolocation', 'Duration', 'Password', 'Read Only', 
+                                   'Section Break', 'Column Break', 'HTML', 'Table', 'Button'];
+          
+          if (!validFieldTypes.includes(field.fieldtype)) {
+            throw new Error(`Invalid fieldtype '${field.fieldtype}' for field '${field.fieldname}'. Valid types: ${validFieldTypes.join(', ')}`);
+          }
+        }
+      }
+      
+      // Ensure it's marked as a child table - ERPNext uses 'istable' not 'is_table'
       const childTableDoc = {
         ...childTableDefinition,
-        is_table: 1,
+        istable: 1,  // Fixed: ERPNext expects 'istable' not 'is_table'
         is_child_table: 1,
         custom: 1,
-        module: childTableDefinition.module || "Custom"
+        module: childTableDefinition.module || "Custom",
+        // Ensure naming_series is not added for child tables
+        autoname: "hash"  // Child tables should use hash naming
       };
+
+      // Remove naming_series if it exists (child tables don't need it)
+      if (childTableDoc.fields) {
+        childTableDoc.fields = childTableDoc.fields.filter((f: any) => f.fieldname !== "naming_series");
+      }
 
       return await this.createDocType(childTableDoc);
     } catch (error: any) {
-      throw new Error(`Failed to create child table: ${error?.message || 'Unknown error'}`);
+      // Enhanced error reporting for child table creation
+      const errorMessage = error?.response?.data?.message || error?.message || 'Unknown error';
+      const suggestions = [];
+      
+      if (errorMessage.includes('already exists')) {
+        suggestions.push('Child table with this name already exists - use a different name');
+        suggestions.push('Check if the child table was created in a previous attempt');
+      }
+      if (errorMessage.includes('permission')) {
+        suggestions.push('Ensure you have Administrator permissions to create DocTypes');
+      }
+      if (errorMessage.includes('field')) {
+        suggestions.push('Check that all field definitions are valid');
+        suggestions.push('Ensure fieldtypes are correct (Data, Int, Float, Currency, etc.)');
+      }
+      if (errorMessage.includes('module')) {
+        suggestions.push('Verify the module exists or use "Custom" as the module');
+      }
+      
+      const detailedError = {
+        message: errorMessage,
+        childTableName: childTableDefinition.name,
+        suggestions: suggestions
+      };
+      
+      throw new Error(`Failed to create child table '${childTableDefinition.name}': ${JSON.stringify(detailedError, null, 2)}`);
     }
   }
 
@@ -543,9 +707,10 @@ class ERPNextClient {
       const childTableDef = {
         name: childTableName,
         module: mainDocType.module || "Custom",
-        is_table: 1,
+        istable: 1,  // Fixed: ERPNext expects 'istable' not 'is_table'
         is_child_table: 1,
         custom: 1,
+        autoname: "hash",  // Child tables should use hash naming
         fields: tableField.child_table_fields || [
           {
             fieldname: "item_code",
@@ -1568,12 +1733,63 @@ class ERPNextClient {
     return results;
   }
 
-  // Bulk create
-  async bulkCreateDocuments(doctype: string, docs: any[]): Promise<any[]> {
-    const results = [];
-    for (const doc of docs) {
-      results.push(await this.createDocument(doctype, doc));
+  // Bulk create with batch processing and error handling
+  async bulkCreateDocuments(doctype: string, docs: any[], options: { batchSize?: number; stopOnError?: boolean } = {}): Promise<any> {
+    const batchSize = options.batchSize || 10;
+    const stopOnError = options.stopOnError !== undefined ? options.stopOnError : false;
+    
+    const results = {
+      successful: [] as any[],
+      failed: [] as any[],
+      totalProcessed: 0,
+      totalSuccess: 0,
+      totalFailed: 0
+    };
+    
+    // Process in batches to avoid overwhelming the server
+    for (let i = 0; i < docs.length; i += batchSize) {
+      const batch = docs.slice(i, Math.min(i + batchSize, docs.length));
+      const batchPromises = batch.map(async (doc, index) => {
+        try {
+          const created = await this.createDocument(doctype, doc);
+          return { success: true, data: created, index: i + index };
+        } catch (error: any) {
+          return { 
+            success: false, 
+            error: error?.message || 'Unknown error', 
+            index: i + index,
+            document: doc 
+          };
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (const result of batchResults) {
+        results.totalProcessed++;
+        if (result.success) {
+          results.successful.push(result.data);
+          results.totalSuccess++;
+        } else {
+          results.failed.push({
+            index: result.index,
+            error: result.error,
+            document: result.document
+          });
+          results.totalFailed++;
+          
+          if (stopOnError) {
+            return results;
+          }
+        }
+      }
+      
+      // Add a small delay between batches to avoid rate limiting
+      if (i + batchSize < docs.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
+    
     return results;
   }
 
@@ -1671,32 +1887,142 @@ class ERPNextClient {
     return results;
   }
 
-  // Bulk update
-  async bulkUpdateDocuments(doctype: string, updates: {name: string, data: any}[]): Promise<any[]> {
-    const results = [];
-    for (const upd of updates) {
-      results.push(await this.updateDocument(doctype, upd.name, upd.data));
+  // Bulk update with batch processing and error handling
+  async bulkUpdateDocuments(doctype: string, updates: {name: string, data: any}[], options: { batchSize?: number; stopOnError?: boolean } = {}): Promise<any> {
+    const batchSize = options.batchSize || 10;
+    const stopOnError = options.stopOnError !== undefined ? options.stopOnError : false;
+    
+    const results = {
+      successful: [] as any[],
+      failed: [] as any[],
+      totalProcessed: 0,
+      totalSuccess: 0,
+      totalFailed: 0
+    };
+    
+    // Process in batches
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, Math.min(i + batchSize, updates.length));
+      const batchPromises = batch.map(async (upd, index) => {
+        try {
+          const updated = await this.updateDocument(doctype, upd.name, upd.data);
+          return { success: true, data: updated, index: i + index };
+        } catch (error: any) {
+          return { 
+            success: false, 
+            error: error?.message || 'Unknown error', 
+            index: i + index,
+            name: upd.name,
+            data: upd.data
+          };
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (const result of batchResults) {
+        results.totalProcessed++;
+        if (result.success) {
+          results.successful.push(result.data);
+          results.totalSuccess++;
+        } else {
+          results.failed.push({
+            index: result.index,
+            error: result.error,
+            name: result.name,
+            data: result.data
+          });
+          results.totalFailed++;
+          
+          if (stopOnError) {
+            return results;
+          }
+        }
+      }
+      
+      // Add a small delay between batches
+      if (i + batchSize < updates.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
+    
     return results;
   }
 
-  // Bulk delete
-  async bulkDeleteDocuments(doctype: string, names: string[]): Promise<any[]> {
-    const results: any[] = [];
-    for (const name of names) {
-      try {
-        // Skip if document no longer exists
-        const exists = await this.axiosInstance.get(`/api/resource/${doctype}/${name}`).then(() => true).catch(() => false);
-        if (!exists) {
-          results.push({ name, skipped: true, reason: 'Not found' });
-          continue;
+  // Bulk delete with batch processing and error handling
+  async bulkDeleteDocuments(doctype: string, names: string[], options: { batchSize?: number; stopOnError?: boolean } = {}): Promise<any> {
+    const batchSize = options.batchSize || 10;
+    const stopOnError = options.stopOnError !== undefined ? options.stopOnError : false;
+    
+    const results = {
+      successful: [] as string[],
+      failed: [] as any[],
+      skipped: [] as any[],
+      totalProcessed: 0,
+      totalSuccess: 0,
+      totalFailed: 0,
+      totalSkipped: 0
+    };
+    
+    // Process in batches
+    for (let i = 0; i < names.length; i += batchSize) {
+      const batch = names.slice(i, Math.min(i + batchSize, names.length));
+      const batchPromises = batch.map(async (name, index) => {
+        try {
+          // Check if document exists first
+          const exists = await this.axiosInstance.get(`/api/resource/${doctype}/${name}`)
+            .then(() => true)
+            .catch(() => false);
+            
+          if (!exists) {
+            return { success: false, skipped: true, name, index: i + index, reason: 'Document not found' };
+          }
+          
+          await this.deleteDocument(doctype, name);
+          return { success: true, name, index: i + index };
+        } catch (error: any) {
+          return { 
+            success: false, 
+            error: error?.response?.data?.message || error?.message || 'Unknown error', 
+            index: i + index,
+            name
+          };
         }
-        await this.deleteDocument(doctype, name);
-        results.push({ name, deleted: true });
-      } catch (error: any) {
-        results.push({ name, error: error?.response?.data?.message || error?.message || 'Unknown error' });
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (const result of batchResults) {
+        results.totalProcessed++;
+        if (result.success) {
+          results.successful.push(result.name);
+          results.totalSuccess++;
+        } else if (result.skipped) {
+          results.skipped.push({
+            name: result.name,
+            reason: result.reason
+          });
+          results.totalSkipped++;
+        } else {
+          results.failed.push({
+            index: result.index,
+            error: result.error,
+            name: result.name
+          });
+          results.totalFailed++;
+          
+          if (stopOnError) {
+            return results;
+          }
+        }
+      }
+      
+      // Add a small delay between batches
+      if (i + batchSize < names.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
+    
     return results;
   }
 
