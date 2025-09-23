@@ -1,6 +1,7 @@
 // src/http-server.ts
 import express, { Request, Response } from 'express';
 import { spawn } from 'child_process';
+import fs from 'node:fs';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
@@ -33,7 +34,23 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Resolve the Node.js binary and server entry dynamically
-const nodePath = process.env.NODE_BINARY || process.execPath;
+function resolveNodeBinary(): string {
+  const provided = process.env.NODE_BINARY;
+  if (provided) {
+    try {
+      if (fs.existsSync(provided)) {
+        fs.accessSync(provided, fs.constants.X_OK);
+        return provided;
+      }
+      console.warn(`NODE_BINARY does not exist: ${provided}. Falling back to current Node.`);
+    } catch (e) {
+      console.warn(`NODE_BINARY is not executable: ${provided}. Falling back to current Node.`);
+    }
+  }
+  return process.execPath;
+}
+
+const nodePath = resolveNodeBinary();
 const serverEntry = fileURLToPath(new URL('./index.js', import.meta.url));
 
 // Spawn your MCP CLI with correct environment
