@@ -2,6 +2,7 @@
 import express, { Request, Response } from 'express';
 import { spawn } from 'child_process';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -31,11 +32,12 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Use the correct Node.js path
-const nodePath = '/home/frappeuser/.nvm/versions/node/v18.20.8/bin/node';
+// Resolve the Node.js binary and server entry dynamically
+const nodePath = process.env.NODE_BINARY || process.execPath;
+const serverEntry = fileURLToPath(new URL('./index.js', import.meta.url));
 
 // Spawn your MCP CLI with correct environment
-const mcp = spawn(nodePath, ['build/index.js'], {
+const mcp = spawn(nodePath, [serverEntry], {
   env: {
     ...process.env,
     ERPNEXT_URL: process.env.ERPNEXT_URL || 'http://127.0.0.1:8000',
