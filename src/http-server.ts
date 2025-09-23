@@ -63,6 +63,7 @@ mcp.on('error', (error) => {
 
 mcp.on('exit', (code) => {
   console.log('MCP process exited with code:', code);
+  rejectAllPending(new Error(`MCP process exited with code ${code}`));
 });
 
 // Track pending MCP requests so we can match responses by ID
@@ -74,6 +75,13 @@ const pendingRequests = new Map<
   }
 >();
 
+function rejectAllPending(error: Error) {
+  for (const pending of pendingRequests.values()) {
+    pending.reject(error);
+  }
+  pendingRequests.clear();
+}
+
 // Ensure stdout is decoded as UTF-8 strings
 if (mcp.stdout) {
   mcp.stdout.setEncoding('utf8');
@@ -82,6 +90,24 @@ if (mcp.stdout) {
 const rl = readline.createInterface({
   input: mcp.stdout!,
   crlfDelay: Infinity,
+});
+
+mcp.stdout?.on('error', (error) => {
+  console.error('Error reading MCP stdout:', error);
+  rejectAllPending(new Error(`MCP stdout error: ${error?.message || error}`));
+});
+
+mcp.stdout?.on('close', () => {
+  rejectAllPending(new Error('MCP stdout closed'));
+});
+
+mcp.stdin?.on('error', (error) => {
+  console.error('Error writing to MCP stdin:', error);
+  rejectAllPending(new Error(`MCP stdin error: ${error?.message || error}`));
+});
+
+mcp.stdin?.on('close', () => {
+  rejectAllPending(new Error('MCP stdin closed'));
 });
 
 rl.on('line', (line) => {
@@ -131,6 +157,11 @@ function sendMCPRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
 
     if (pendingRequests.has(request.id)) {
       reject(new Error(`Duplicate JSON-RPC request id: ${request.id}`));
+      return;
+    }
+
+    if (!mcp.stdin || mcp.stdin.destroyed) {
+      reject(new Error('MCP process is not available'));
       return;
     }
 
