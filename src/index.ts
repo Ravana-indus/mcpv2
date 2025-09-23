@@ -61,6 +61,95 @@ interface ErrorDetails {
   suggestions: string[];
 }
 
+type UiStylePreset = "plain" | "erp" | "compact";
+
+interface UiListFilter {
+  field: string;
+  type: string;
+  label?: string;
+  options?: string[];
+  doctype?: string;
+  placeholder?: string;
+  default?: any;
+}
+
+interface UiContractFormSection {
+  label: string;
+  fields: string[];
+}
+
+interface UiContractChildTable {
+  field: string;
+  doctype: string;
+  columns: string[];
+  label?: string;
+}
+
+interface UiContractActionsMethod {
+  label: string;
+  method: string;
+  description?: string;
+}
+
+interface UiContractActions {
+  workflow: boolean;
+  workflow_name?: string;
+  workflow_states?: string[];
+  docstatus_actions: string[];
+  methods: UiContractActionsMethod[];
+}
+
+interface UiContractClientScripts {
+  events: Record<string, string>;
+  setQuery: Record<string, string>;
+  customButtons: { label: string; code: string }[];
+}
+
+interface UiContract {
+  doctype: string;
+  routes: {
+    list: string;
+    detail: string;
+  };
+  list: {
+    columns: string[];
+    filters: UiListFilter[];
+    default_sort: {
+      field: string;
+      order: "asc" | "desc";
+    };
+  };
+  form: {
+    sections: UiContractFormSection[];
+    fieldTypes: Record<string, string>;
+    labels?: Record<string, string>;
+    depends: Record<string, string>;
+    mandatoryDepends: Record<string, string>;
+    childTables: UiContractChildTable[];
+    attachments: string[];
+  };
+  actions: UiContractActions;
+  permissions: {
+    can_read: boolean;
+    can_write: boolean;
+    can_create: boolean;
+    can_submit: boolean;
+  };
+  clientScripts: UiContractClientScripts;
+  realtime: {
+    topics: string[];
+  };
+  metaSummary?: {
+    fieldCount: number;
+    sectionCount: number;
+  };
+}
+
+interface GeneratedFile {
+  path: string;
+  contents: string;
+}
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -74,6 +163,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 import process from 'node:process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 // ERPNext API client configuration
 class ERPNextClient {
@@ -394,6 +485,128 @@ class ERPNextClient {
       return data;
     } catch (error: any) {
       throw new Error(`Failed to get DocType metadata for ${doctype}: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  async getPropertySetters(doctype: string): Promise<any[]> {
+    try {
+      const response = await this.axiosInstance.get('/api/resource/Property Setter', {
+        params: {
+          filters: JSON.stringify([["doc_type", "=", doctype]]),
+          fields: JSON.stringify([
+            "name",
+            "doc_type",
+            "doctype_or_field",
+            "field_name",
+            "property",
+            "value",
+            "property_type"
+          ]),
+          limit_page_length: 500
+        }
+      });
+
+      return response.data?.data || [];
+    } catch (error: any) {
+      console.warn(`Failed to get property setters for ${doctype}: ${error?.message || 'Unknown error'}`);
+      return [];
+    }
+  }
+
+  async getWorkflowForDoctype(doctype: string): Promise<any | null> {
+    try {
+      const response = await this.axiosInstance.get('/api/resource/Workflow', {
+        params: {
+          filters: JSON.stringify([["document_type", "=", doctype]]),
+          fields: JSON.stringify(["name", "workflow_name"]),
+          limit_page_length: 5
+        }
+      });
+
+      const workflows = response.data?.data || [];
+      if (!workflows.length) {
+        return null;
+      }
+
+      const workflowName = workflows[0].name || workflows[0].workflow_name;
+      if (!workflowName) {
+        return null;
+      }
+
+      try {
+        const detail = await this.axiosInstance.get(`/api/resource/Workflow/${encodeURIComponent(workflowName)}`);
+        return detail.data?.data || null;
+      } catch (detailError: any) {
+        console.warn(`Failed to get workflow detail for ${workflowName}: ${detailError?.message || 'Unknown error'}`);
+        return {
+          name: workflowName,
+          workflow_name: workflows[0].workflow_name || workflowName,
+          states: [],
+          transitions: []
+        };
+      }
+    } catch (error: any) {
+      console.warn(`Failed to get workflow for ${doctype}: ${error?.message || 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  async getClientScriptsForDoctype(doctype: string): Promise<any[]> {
+    try {
+      const response = await this.axiosInstance.get('/api/resource/Client Script', {
+        params: {
+          filters: JSON.stringify([["dt", "=", doctype]]),
+          fields: JSON.stringify([
+            "name",
+            "dt",
+            "script",
+            "view",
+            "enabled"
+          ]),
+          limit_page_length: 20
+        }
+      });
+
+      return response.data?.data || [];
+    } catch (error: any) {
+      console.warn(`Failed to get client scripts for ${doctype}: ${error?.message || 'Unknown error'}`);
+      return [];
+    }
+  }
+
+  async listWhitelistedMethods(doctype?: string): Promise<string[]> {
+    try {
+      const filters: any[] = [["script_type", "=", "API"]];
+      if (doctype) {
+        filters.push(["reference_doctype", "=", doctype]);
+      }
+
+      const response = await this.axiosInstance.get('/api/resource/Server Script', {
+        params: {
+          filters: JSON.stringify(filters),
+          fields: JSON.stringify([
+            "name",
+            "api_method_name",
+            "reference_doctype"
+          ]),
+          limit_page_length: 200
+        }
+      });
+
+      const data = response.data?.data || [];
+      const methods = new Set<string>();
+      for (const row of data) {
+        if (row.api_method_name) {
+          methods.add(row.api_method_name);
+        } else if (row.name) {
+          methods.add(row.name);
+        }
+      }
+
+      return Array.from(methods);
+    } catch (error: any) {
+      console.warn(`Failed to list whitelisted methods${doctype ? ` for ${doctype}` : ''}: ${error?.message || 'Unknown error'}`);
+      return [];
     }
   }
   
@@ -2477,6 +2690,1592 @@ class ERPNextClient {
   }
 }
 
+const uiContractCache = new Map<string, UiContract>();
+
+const LAYOUT_FIELD_TYPES = new Set([
+  "Section Break",
+  "Column Break",
+  "Tab Break"
+]);
+
+const SKIP_FIELD_TYPES = new Set([
+  "Section Break",
+  "Column Break",
+  "HTML",
+  "Button",
+  "Heading",
+  "Fold",
+  "Tab Break"
+]);
+
+const CHILD_TABLE_FIELD_TYPES = new Set(["Table", "Table MultiSelect"]);
+
+function slugifyDoctype(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || value.toLowerCase();
+}
+
+function startCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function dedupe<T>(input: T[]): T[] {
+  return Array.from(new Set(input));
+}
+
+function parseSelectOptions(options: any): string[] {
+  if (!options) {
+    return [];
+  }
+
+  if (Array.isArray(options)) {
+    return options.filter((item) => typeof item === 'string' && item.trim().length > 0);
+  }
+
+  return String(options)
+    .split('\n')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function normalizePropertySetterValue(value: any, propertyType?: string): any {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (propertyType) {
+    const lower = propertyType.toLowerCase();
+    if (lower.includes('check')) {
+      return trimmed === '1' || trimmed.toLowerCase() === 'true';
+    }
+    if (lower.includes('int') || lower.includes('float') || lower.includes('number')) {
+      const numeric = Number(trimmed);
+      return Number.isNaN(numeric) ? value : numeric;
+    }
+  }
+
+  if (trimmed === '0' || trimmed === '1') {
+    return Number(trimmed);
+  }
+
+  if (trimmed === 'true' || trimmed === 'false') {
+    return trimmed === 'true';
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function mergeMetaWithPropertySetters(meta: any, setters: any[]): any {
+  if (!Array.isArray(setters) || setters.length === 0) {
+    return meta;
+  }
+
+  const merged = JSON.parse(JSON.stringify(meta));
+
+  for (const setter of setters) {
+    if (!setter || !setter.property) {
+      continue;
+    }
+
+    const value = normalizePropertySetterValue(setter.value, setter.property_type);
+
+    if (!setter.field_name || setter.doctype_or_field === 'DocType') {
+      merged[setter.property] = value;
+      continue;
+    }
+
+    const targetField = (merged.fields || []).find((field: any) => field.fieldname === setter.field_name);
+    if (targetField) {
+      targetField[setter.property] = value;
+    }
+  }
+
+  return merged;
+}
+
+function buildListColumns(meta: any): string[] {
+  const columns: string[] = [];
+  const fields: any[] = meta.fields || [];
+
+  for (const field of fields) {
+    if (!field || !field.fieldname || field.hidden) {
+      continue;
+    }
+    if (field.in_list_view || field.in_standard_filter) {
+      columns.push(field.fieldname);
+    }
+  }
+
+  if (meta.title_field) {
+    columns.unshift(meta.title_field);
+  }
+
+  columns.unshift('name');
+
+  return dedupe(columns).slice(0, 8);
+}
+
+function buildListFilters(meta: any): UiListFilter[] {
+  const filters: UiListFilter[] = [];
+  const fields: any[] = meta.fields || [];
+
+  for (const field of fields) {
+    if (!field || !field.fieldname || field.hidden) {
+      continue;
+    }
+
+    if (field.in_standard_filter || field.filters || ['Select', 'Link', 'Dynamic Link', 'Date', 'Datetime', 'Check'].includes(field.fieldtype)) {
+      const filter: UiListFilter = {
+        field: field.fieldname,
+        type: field.fieldtype,
+        label: field.label || startCase(field.fieldname)
+      };
+
+      if (field.fieldtype === 'Select') {
+        filter.options = parseSelectOptions(field.options);
+      }
+
+      if (field.fieldtype === 'Link' || field.fieldtype === 'Dynamic Link') {
+        filter.doctype = field.options || undefined;
+      }
+
+      filters.push(filter);
+    }
+
+    if (filters.length >= 8) {
+      break;
+    }
+  }
+
+  return filters;
+}
+
+function buildFormSections(fields: any[]): UiContractFormSection[] {
+  const sections: UiContractFormSection[] = [];
+  let current: UiContractFormSection = { label: 'Main', fields: [] };
+
+  for (const field of fields || []) {
+    if (!field) {
+      continue;
+    }
+
+    if (field.fieldtype === 'Section Break') {
+      if (current.fields.length) {
+        sections.push(current);
+      }
+      current = {
+        label: field.label || `Section ${sections.length + 1}`,
+        fields: []
+      };
+      continue;
+    }
+
+    if (SKIP_FIELD_TYPES.has(field.fieldtype) || !field.fieldname) {
+      continue;
+    }
+
+    current.fields.push(field.fieldname);
+  }
+
+  if (current.fields.length || sections.length === 0) {
+    if (!current.label) {
+      current.label = 'Main';
+    }
+    sections.push(current);
+  }
+
+  return sections;
+}
+
+function extractBlock(source: string, startIndex: number): { block: string; end: number } {
+  let depth = 0;
+  let end = startIndex;
+  for (let i = startIndex; i < source.length; i++) {
+    const char = source[i];
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  const block = depth === 0 ? source.slice(startIndex + 1, end) : source.slice(startIndex + 1);
+  return { block, end: depth === 0 ? end + 1 : source.length };
+}
+
+function parseEventHandlers(block: string): Record<string, string> {
+  const events: Record<string, string> = {};
+  const lines = block.split('\n');
+  let currentName: string | null = null;
+  let braceDepth = 0;
+  let buffer: string[] = [];
+
+  const headerRegexes = [
+    /^\s*([A-Za-z0-9_]+)\s*:\s*(?:async\s*)?function\s*\([^)]*\)\s*{?\s*$/,
+    /^\s*([A-Za-z0-9_]+)\s*\([^)]*\)\s*{?\s*$/,
+    /^\s*([A-Za-z0-9_]+)\s*:\s*(?:async\s*)?\([^)]*\)\s*=>\s*{?\s*$/
+  ];
+
+  const countBraces = (text: string) => {
+    let count = 0;
+    for (const char of text) {
+      if (char === '{') {
+        count += 1;
+      } else if (char === '}') {
+        count -= 1;
+      }
+    }
+    return count;
+  };
+
+  for (const line of lines) {
+    if (!currentName) {
+      for (const regex of headerRegexes) {
+        const match = line.match(regex);
+        if (match) {
+          currentName = match[1];
+          braceDepth = countBraces(line);
+          if (!line.trim().endsWith('{')) {
+            braceDepth += 1;
+          }
+          buffer = [];
+          break;
+        }
+      }
+      continue;
+    }
+
+    buffer.push(line);
+    braceDepth += countBraces(line);
+
+    if (braceDepth <= 0) {
+      const body = buffer.join('\n');
+      const normalized = body.replace(/}\s*$/m, '').trim();
+      if (normalized.length > 0) {
+        events[currentName] = normalized;
+      }
+      currentName = null;
+      buffer = [];
+      braceDepth = 0;
+    }
+  }
+
+  return events;
+}
+
+function parseClientScripts(scripts: any[], doctype: string): UiContractClientScripts {
+  const result: UiContractClientScripts = {
+    events: {},
+    setQuery: {},
+    customButtons: []
+  };
+
+  for (const scriptDoc of scripts || []) {
+    if (!scriptDoc || !scriptDoc.script || scriptDoc.enabled === 0) {
+      continue;
+    }
+
+    const script = String(scriptDoc.script);
+    const matcher = /frappe\.ui\.form\.on\s*\(\s*['"]([^'"]+)['"]/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = matcher.exec(script)) !== null) {
+      const target = match[1];
+      if (target !== doctype && target !== '*') {
+        continue;
+      }
+
+      const braceStart = script.indexOf('{', matcher.lastIndex);
+      if (braceStart === -1) {
+        continue;
+      }
+
+      const { block, end } = extractBlock(script, braceStart);
+      matcher.lastIndex = end;
+
+      const events = parseEventHandlers(block);
+      for (const [eventName, body] of Object.entries(events)) {
+        result.events[eventName] = body;
+      }
+    }
+
+    const setQueryRegex = /frm\.set_query\s*\(\s*['"]([^'"]+)['"]\s*,\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>)\s*\(([^)]*)\)\s*{([\s\S]*?)}\s*\);?/g;
+    let queryMatch: RegExpExecArray | null;
+    while ((queryMatch = setQueryRegex.exec(script)) !== null) {
+      const fieldname = queryMatch[1];
+      const body = queryMatch[3].trim();
+      if (fieldname) {
+        result.setQuery[fieldname] = body;
+      }
+    }
+
+    const customButtonRegex = /frm\.add_custom_button\s*\(\s*['"]([^'"]+)['"]\s*,\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>)\s*\(([^)]*)\)\s*{([\s\S]*?)}\s*\);?/g;
+    let buttonMatch: RegExpExecArray | null;
+    while ((buttonMatch = customButtonRegex.exec(script)) !== null) {
+      const label = buttonMatch[1];
+      const body = buttonMatch[3].trim();
+      if (label) {
+        result.customButtons.push({ label, code: body });
+      }
+    }
+  }
+
+  return result;
+}
+
+function evaluatePermissions(meta: any): { can_read: boolean; can_write: boolean; can_create: boolean; can_submit: boolean } {
+  const permissions = meta.permissions || [];
+  let can_read = false;
+  let can_write = false;
+  let can_create = false;
+  let can_submit = false;
+
+  for (const perm of permissions) {
+    if (perm.read) {
+      can_read = true;
+    }
+    if (perm.write) {
+      can_write = true;
+    }
+    if (perm.create) {
+      can_create = true;
+    }
+    if (perm.submit) {
+      can_submit = true;
+    }
+  }
+
+  return { can_read, can_write, can_create, can_submit };
+}
+
+async function buildChildTables(meta: any, client: ERPNextClient): Promise<UiContractChildTable[]> {
+  const result: UiContractChildTable[] = [];
+
+  for (const field of meta.fields || []) {
+    if (!field || !field.fieldname || !CHILD_TABLE_FIELD_TYPES.has(field.fieldtype)) {
+      continue;
+    }
+
+    const childDoctype = field.options;
+    if (!childDoctype) {
+      continue;
+    }
+
+    try {
+      const childMeta = await client.getDocTypeMeta(childDoctype);
+      const columns = buildListColumns(childMeta).slice(0, 4);
+      result.push({
+        field: field.fieldname,
+        doctype: childDoctype,
+        columns,
+        label: field.label
+      });
+    } catch (error: any) {
+      console.warn(`Failed to fetch child table meta for ${childDoctype}: ${error?.message || 'Unknown error'}`);
+      result.push({
+        field: field.fieldname,
+        doctype: childDoctype,
+        columns: ['name'],
+        label: field.label
+      });
+    }
+  }
+
+  return result;
+}
+
+function buildAttachments(meta: any): string[] {
+  const attachments: string[] = [];
+
+  for (const field of meta.fields || []) {
+    if (!field || !field.fieldname) {
+      continue;
+    }
+
+    if (field.fieldtype === 'Attach' || field.fieldtype === 'Attach Image') {
+      attachments.push(field.fieldname);
+    }
+  }
+
+  return attachments;
+}
+
+function buildFieldTypes(meta: any): Record<string, string> {
+  const map: Record<string, string> = {};
+
+  for (const field of meta.fields || []) {
+    if (!field || !field.fieldname) {
+      continue;
+    }
+
+    map[field.fieldname] = field.fieldtype;
+  }
+
+  if (!map.name) {
+    map.name = 'Data';
+  }
+
+  return map;
+}
+
+function buildFieldLabels(meta: any): Record<string, string> {
+  const map: Record<string, string> = {};
+
+  for (const field of meta.fields || []) {
+    if (!field || !field.fieldname) {
+      continue;
+    }
+
+    const label = typeof field.label === 'string' && field.label.trim().length
+      ? field.label.trim()
+      : startCase(field.fieldname);
+    map[field.fieldname] = label;
+  }
+
+  if (!map.name) {
+    map.name = 'Name';
+  }
+
+  return map;
+}
+
+function extractDepends(meta: any, key: 'depends_on' | 'mandatory_depends_on'): Record<string, string> {
+  const map: Record<string, string> = {};
+
+  for (const field of meta.fields || []) {
+    if (!field || !field.fieldname) {
+      continue;
+    }
+
+    const value = field[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      map[field.fieldname] = value.trim();
+    }
+  }
+
+  return map;
+}
+
+function buildDefaultSort(meta: any): { field: string; order: 'asc' | 'desc' } {
+  const field = meta.sort_field || 'modified';
+  let order: 'asc' | 'desc' = 'desc';
+  if (meta.sort_order && typeof meta.sort_order === 'string') {
+    order = meta.sort_order.toLowerCase() === 'asc' ? 'asc' : 'desc';
+  }
+  return { field, order };
+}
+
+function workflowToActions(workflow: any): { workflow_name?: string; workflow_states?: string[] } {
+  if (!workflow) {
+    return {};
+  }
+
+  const states = Array.isArray(workflow.states)
+    ? workflow.states.map((state: any) => state.state || state.doc_status).filter(Boolean)
+    : [];
+
+  return {
+    workflow_name: workflow.workflow_name || workflow.name,
+    workflow_states: dedupe(states)
+  };
+}
+
+function toActionMethods(methods: string[]): UiContractActionsMethod[] {
+  return methods.map((method) => ({
+    method,
+    label: startCase(method.split('.').pop() || method)
+  }));
+}
+
+async function buildUiContract(doctype: string, client: ERPNextClient, stylePreset: UiStylePreset = 'plain'): Promise<UiContract> {
+  const cacheKey = `${doctype}:${stylePreset}`;
+  const cached = uiContractCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const meta = await client.getDocTypeMeta(doctype);
+  let propertySetters: any[] = [];
+  let clientScripts: any[] = [];
+  let workflow: any = null;
+  let whitelistedMethods: string[] = [];
+
+  try {
+    propertySetters = await client.getPropertySetters(doctype);
+  } catch {
+    propertySetters = [];
+  }
+
+  try {
+    clientScripts = await client.getClientScriptsForDoctype(doctype);
+  } catch {
+    clientScripts = [];
+  }
+
+  try {
+    workflow = await client.getWorkflowForDoctype(doctype);
+  } catch {
+    workflow = null;
+  }
+
+  try {
+    whitelistedMethods = await client.listWhitelistedMethods(doctype);
+  } catch {
+    whitelistedMethods = [];
+  }
+
+  const mergedMeta = mergeMetaWithPropertySetters(meta, propertySetters);
+  const sections = buildFormSections(mergedMeta.fields || []);
+  const childTables = await buildChildTables(mergedMeta, client);
+  const attachments = buildAttachments(mergedMeta);
+  const fieldTypes = buildFieldTypes(mergedMeta);
+  const fieldLabels = buildFieldLabels(mergedMeta);
+  const depends = extractDepends(mergedMeta, 'depends_on');
+  const mandatoryDepends = extractDepends(mergedMeta, 'mandatory_depends_on');
+  const clientScriptBundle = parseClientScripts(clientScripts, doctype);
+  const columns = buildListColumns(mergedMeta);
+  const filters = buildListFilters(mergedMeta);
+  const permissions = evaluatePermissions(mergedMeta);
+  const defaultSort = buildDefaultSort(mergedMeta);
+  const actions = workflowToActions(workflow);
+  const slug = slugifyDoctype(doctype);
+
+  const contract: UiContract = {
+    doctype,
+    routes: {
+      list: `/${slug}`,
+      detail: `/${slug}/:name`
+    },
+    list: {
+      columns,
+      filters,
+      default_sort: defaultSort
+    },
+    form: {
+      sections,
+      fieldTypes,
+      labels: fieldLabels,
+      depends,
+      mandatoryDepends,
+      childTables,
+      attachments
+    },
+    actions: {
+      workflow: Boolean(workflow),
+      workflow_name: actions.workflow_name,
+      workflow_states: actions.workflow_states,
+      docstatus_actions: mergedMeta.is_submittable ? ['Submit', 'Cancel', 'Amend'] : [],
+      methods: toActionMethods(whitelistedMethods)
+    },
+    permissions,
+    clientScripts: clientScriptBundle,
+    realtime: {
+      topics: [`doc_update`, `list_update:${doctype}`]
+    },
+    metaSummary: {
+      fieldCount: (mergedMeta.fields || []).length,
+      sectionCount: sections.length
+    }
+  };
+
+  uiContractCache.set(cacheKey, contract);
+  return contract;
+}
+
+function renderAutoRegion(name: string, content: string, indent = 0): string {
+  const prefix = ' '.repeat(indent);
+  return `${prefix}// <auto-generated:${name}>\n${content}\n${prefix}// </auto-generated:${name}>`;
+}
+
+function buildActionsModule(doctype: string, contract: UiContract): string {
+  const slug = slugifyDoctype(doctype);
+  const pascal = startCase(slug).replace(/\s+/g, '');
+  const camel = pascal.charAt(0).toLowerCase() + pascal.slice(1);
+
+  const contractJson = JSON.stringify(contract, null, 2);
+  const methodsJson = JSON.stringify(contract.actions.methods, null, 2);
+
+  return `import { list, get, insert, update, remove, call } from '../lib/frappeResource';
+
+export const ${pascal}Contract = ${renderAutoRegion('contract', contractJson)};
+
+export const ${camel}List = (options: Record<string, any> = {}) =>
+  list('${doctype}', options);
+
+export const ${camel}Get = (name: string) => get('${doctype}', name);
+
+export const ${camel}Insert = (doc: Record<string, any>) => insert('${doctype}', doc);
+
+export const ${camel}Update = (name: string, doc: Record<string, any>) => update('${doctype}', name, doc);
+
+export const ${camel}Delete = (name: string) => remove('${doctype}', name);
+
+export const ${camel}Call = (method: string, args: Record<string, any> = {}) => call(method, args);
+
+export const ${camel}Methods = ${renderAutoRegion('methods', methodsJson)};
+`;
+}
+
+function indentLines(text: string, spaces: number): string {
+  const prefix = ' '.repeat(spaces);
+  return text
+    .split('\n')
+    .map((line) => (line.length ? `${prefix}${line}` : line))
+    .join('\n');
+}
+
+function buildListVue(doctype: string, contract: UiContract, preset: UiStylePreset): string {
+  const slug = slugifyDoctype(doctype);
+  const pascal = startCase(slug).replace(/\s+/g, '');
+  const camel = pascal.charAt(0).toLowerCase() + pascal.slice(1);
+  const defaultSortJson = JSON.stringify(contract.list.default_sort, null, 2);
+
+  const columnConfigJson = JSON.stringify(
+    contract.list.columns.map((field) => ({
+      key: field,
+      label: (contract.form.labels && contract.form.labels[field]) || startCase(field)
+    })),
+    null,
+    2
+  );
+
+  const filterConfigJson = JSON.stringify(
+    contract.list.filters.map((filter) => ({ ...filter, value: undefined })),
+    null,
+    2
+  );
+
+  return `<template>
+  <div class="doctype-list ${preset}">
+    <PageHeader :title="title" :actions="headerActions" />
+    <Card>
+      <div class="filter-bar">
+        <FilterBar
+          :filters="filters"
+          @apply="handleFilterApply"
+          @clear="resetFilters"
+        />
+      </div>
+      <DataTable
+        :columns="columnConfig"
+        :rows="rows"
+        :loading="loading"
+        :rowKey="'name'"
+        :pagination="pagination"
+        :sortable="true"
+        @row-click="handleRowClick"
+        @update:pagination="onPaginationChange"
+        @update:sorter="onSortChange"
+      />
+    </Card>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Button, Card, DataTable, FilterBar, PageHeader } from 'frappe-ui';
+import { ${pascal}Contract, ${camel}List } from '../../actions/${slug}';
+import { useRealtime } from '../../lib/realtime';
+
+const contract = ${pascal}Contract;
+const title = contract.doctype;
+const filters = ref(${renderAutoRegion('filters', filterConfigJson, 2)});
+const columnConfig = ref(${renderAutoRegion('columns', columnConfigJson, 2)});
+const defaultSort = ${renderAutoRegion('defaultSort', defaultSortJson, 2)};
+
+const loading = ref(false);
+const rows = ref<any[]>([]);
+const pagination = reactive({
+  page: 1,
+  pageLength: 20,
+  total: 0
+});
+const sorter = ref({ ...defaultSort });
+
+const route = useRoute();
+const router = useRouter();
+
+const headerActions = computed(() => [
+  {
+    label: 'New',
+    variant: 'solid',
+    onClick: () => router.push(contract.routes.detail.replace(':name', 'new'))
+  }
+]);
+
+function buildQueryParams() {
+  const params: Record<string, any> = {
+    limit: pagination.pageLength,
+    limit_start: (pagination.page - 1) * pagination.pageLength,
+    order_by: \`\${sorter.value.field} \${sorter.value.order}\`
+  };
+
+  for (const filter of filters.value) {
+    if (filter.value !== undefined && filter.value !== null && filter.value !== '') {
+      params[\`filters.\${filter.field}\`] = filter.value;
+    }
+  }
+
+  return params;
+}
+
+async function fetchRows() {
+  loading.value = true;
+  try {
+    const params = buildQueryParams();
+    const response = await ${camel}List(params);
+    rows.value = response.data || response;
+    if (response.total !== undefined) {
+      pagination.total = response.total;
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
+function syncRoute() {
+  const query: Record<string, any> = {
+    page: pagination.page,
+    pageLength: pagination.pageLength,
+    sortField: sorter.value.field,
+    sortOrder: sorter.value.order
+  };
+
+  for (const filter of filters.value) {
+    if (filter.value !== undefined && filter.value !== null && filter.value !== '') {
+      query[filter.field] = filter.value;
+    }
+  }
+
+  router.replace({
+    name: route.name || undefined,
+    params: route.params,
+    query
+  });
+}
+
+function loadFromRoute() {
+  const query = route.query;
+  pagination.page = Number(query.page || 1);
+  pagination.pageLength = Number(query.pageLength || 20);
+  sorter.value.field = String(query.sortField || defaultSort.field);
+  sorter.value.order = String(query.sortOrder || defaultSort.order) as 'asc' | 'desc';
+
+  for (const filter of filters.value) {
+    if (query[filter.field] !== undefined) {
+      filter.value = query[filter.field];
+    }
+  }
+}
+
+function handleFilterApply(values: Record<string, any>) {
+  for (const filter of filters.value) {
+    filter.value = values[filter.field];
+  }
+  pagination.page = 1;
+  syncRoute();
+  fetchRows();
+}
+
+function resetFilters() {
+  for (const filter of filters.value) {
+    filter.value = undefined;
+  }
+  pagination.page = 1;
+  syncRoute();
+  fetchRows();
+}
+
+function handleRowClick(row: any) {
+  if (!row?.name) {
+    return;
+  }
+  router.push(contract.routes.detail.replace(':name', row.name));
+}
+
+function onPaginationChange(value: any) {
+  pagination.page = value.page;
+  pagination.pageLength = value.pageLength;
+  syncRoute();
+  fetchRows();
+}
+
+function onSortChange(value: any) {
+  sorter.value = {
+    field: value.field,
+    order: value.order
+  };
+  syncRoute();
+  fetchRows();
+}
+
+useRealtime(${JSON.stringify(contract.realtime.topics)}, (event) => {
+  if (!event) {
+    return;
+  }
+  if (event.doctype === '${doctype}') {
+    fetchRows();
+  }
+});
+
+watch(() => route.query, () => {
+  loadFromRoute();
+  fetchRows();
+});
+
+onMounted(() => {
+  loadFromRoute();
+  fetchRows();
+});
+</script>
+
+<style scoped>
+.doctype-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.filter-bar {
+  margin-bottom: 1rem;
+}
+</style>
+`;
+}
+
+function buildFormVue(doctype: string, contract: UiContract, preset: UiStylePreset): string {
+  const slug = slugifyDoctype(doctype);
+  const pascal = startCase(slug).replace(/\s+/g, '');
+  const camel = pascal.charAt(0).toLowerCase() + pascal.slice(1);
+
+  return `<template>
+  <div class="doctype-form ${preset}">
+    <PageHeader :title="pageTitle" :actions="headerActions" />
+    <div class="form-layout">
+      <div class="form-sections">
+        <FormSection
+          v-for="section in sections"
+          :key="section.label"
+          :title="section.label"
+        >
+          <div class="section-grid">
+            <template v-for="fieldname in section.fields" :key="fieldname">
+              <FieldRenderer
+                :field="fields[fieldname]"
+                :value="doc[fieldname]"
+                :visible="fieldVisibility[fieldname] !== false"
+                :required="mandatoryState[fieldname] === true"
+                @update="(value) => setValue(fieldname, value)"
+                @link-search="(term) => handleLinkSearch(fieldname, term)"
+                @table-update="(rows) => setValue(fieldname, rows)"
+              />
+            </template>
+          </div>
+        </FormSection>
+      </div>
+      <div class="form-actions">
+        <ActionBar
+          :doc="doc"
+          :contract="actions"
+          :loading="actionLoading"
+          :customButtons="customButtons"
+          @action="runAction"
+          @workflow="runWorkflow"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { ActionBar, FormSection, FieldRenderer, PageHeader } from 'frappe-ui';
+import { ${pascal}Contract, ${camel}Get, ${camel}Insert, ${camel}Update, ${camel}Methods } from '../../actions/${slug}';
+import { createFrmShim, applyClientScripts, evaluateCondition } from '../../lib/frm-shim';
+import { useRealtime } from '../../lib/realtime';
+
+const contract = ${pascal}Contract;
+const sections = contract.form.sections;
+const fieldTypes = contract.form.fieldTypes;
+const depends = contract.form.depends;
+const mandatoryDepends = contract.form.mandatoryDepends;
+const childTables = contract.form.childTables;
+const attachmentFields = contract.form.attachments;
+const labels = contract.form.labels || {};
+
+const route = useRoute();
+const router = useRouter();
+
+const doc = reactive<Record<string, any>>({});
+const originalDoc = ref<Record<string, any> | null>(null);
+const loading = ref(false);
+const actionLoading = ref(false);
+const customButtons = ref<any[]>([]);
+
+const frm = createFrmShim('${doctype}', doc, {
+  onCustomButtonsUpdate(buttons) {
+    customButtons.value = buttons;
+  }
+});
+
+applyClientScripts(frm, contract.clientScripts);
+
+const fields = computed(() => {
+  const result: Record<string, any> = {};
+  for (const [fieldname, fieldtype] of Object.entries(fieldTypes)) {
+    result[fieldname] = {
+      fieldname,
+      fieldtype,
+      label: labels[fieldname] || fieldname
+    };
+  }
+  return result;
+});
+
+const fieldVisibility = computed(() => {
+  const state: Record<string, boolean> = {};
+  for (const field of Object.keys(fieldTypes)) {
+    const expression = depends[field];
+    state[field] = expression ? evaluateCondition(expression, frm) : true;
+  }
+  return state;
+});
+
+const mandatoryState = computed(() => {
+  const state: Record<string, boolean> = {};
+  for (const field of Object.keys(fieldTypes)) {
+    const expression = mandatoryDepends[field];
+    state[field] = expression ? Boolean(evaluateCondition(expression, frm)) : false;
+  }
+  return state;
+});
+
+const pageTitle = computed(() => {
+  if (!doc.name) {
+    return \`New \${contract.doctype}\`;
+  }
+  return \`\${contract.doctype}: \${doc.name}\`;
+});
+
+const headerActions = computed(() => [
+  {
+    label: 'Save',
+    variant: 'solid',
+    loading: loading.value,
+    onClick: save
+  }
+]);
+
+async function load() {
+  const name = route.params.name;
+  if (!name || name === 'new') {
+    Object.assign(doc, {});
+    originalDoc.value = null;
+    frm.trigger('onload');
+    frm.trigger('refresh');
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const data = await ${camel}Get(String(name));
+    Object.assign(doc, data);
+    originalDoc.value = JSON.parse(JSON.stringify(data));
+    frm.trigger('onload');
+    frm.trigger('refresh');
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function save() {
+  loading.value = true;
+  try {
+    frm.trigger('validate');
+    if (doc.name) {
+      await ${camel}Update(doc.name, doc);
+    } else {
+      const created = await ${camel}Insert(doc);
+      if (created?.name) {
+        router.replace(\`\${contract.routes.detail.replace(':name', '')}\${created.name}\`);
+      }
+    }
+    frm.trigger('refresh');
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function runWorkflow(action: string) {
+  if (!action) {
+    return;
+  }
+  actionLoading.value = true;
+  try {
+    await ${camel}Call(action, { doc: doc });
+    await load();
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+async function runAction(method: string) {
+  if (!method) {
+    return;
+  }
+  actionLoading.value = true;
+  try {
+    await ${camel}Call(method, { doc: doc });
+    await load();
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+function setValue(fieldname: string, value: any) {
+  frm.set_value(fieldname, value);
+}
+
+async function handleLinkSearch(fieldname: string, term: string) {
+  return frm.linkSearch(fieldname, term);
+}
+
+useRealtime(${JSON.stringify(contract.realtime.topics)}, (event) => {
+  if (event?.doctype === '${doctype}' && event.name === doc.name) {
+    load();
+  }
+});
+
+watch(() => route.params.name, () => {
+  load();
+});
+
+onMounted(() => {
+  load();
+});
+</script>
+
+<style scoped>
+.doctype-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.form-actions {
+  position: sticky;
+  top: 1rem;
+}
+</style>
+`;
+}
+
+const FRAPPE_RESOURCE_SOURCE = String.raw`const baseURL = (import.meta.env.VITE_FRAPPE_URL || '').replace(/\/$/, '');
+
+const API_PREFIXES = ['/api/v2', '/api'];
+
+function normalizePath(path) {
+  if (!path.startsWith('/')) {
+    return \`/\${path}\`;
+  }
+  return path;
+}
+
+function buildHeaders(rawHeaders = {}, body) {
+  const headers = { ...rawHeaders };
+  const auth = buildAuthHeader();
+  if (auth) {
+    headers.Authorization = auth;
+  }
+  if (!headers.Accept) {
+    headers.Accept = 'application/json';
+  }
+
+  const hasBody = body !== undefined && body !== null;
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
+  if (hasBody && !isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (!hasBody && !rawHeaders['Content-Type'] && headers['Content-Type'] === 'application/json') {
+    delete headers['Content-Type'];
+  }
+
+  if (isFormData && headers['Content-Type']) {
+    delete headers['Content-Type'];
+  }
+
+  return headers;
+}
+
+async function performRequest(prefix, path, options, body) {
+  const url = \`\${baseURL}\${prefix}\${path}\`;
+  const headers = buildHeaders(options.headers || {}, body);
+  const fetchOptions = {
+    method: options.method || 'GET',
+    credentials: 'include',
+    headers
+  };
+  if (body !== undefined && body !== null) {
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      fetchOptions.body = body;
+    } else {
+      fetchOptions.body = JSON.stringify(body);
+    }
+  }
+  const response = await fetch(url, fetchOptions);
+  const text = await response.text();
+  let data;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  return { response, data };
+}
+
+async function request(path, options = {}) {
+  if (!baseURL) {
+    throw new Error('VITE_FRAPPE_URL is not configured');
+  }
+
+  const normalizedPath = normalizePath(path);
+  const attempts = [];
+  let lastError;
+
+  const bodies = {
+    primary: options.body,
+    fallback: options.fallbackBody ?? options.body
+  };
+
+  for (let i = 0; i < API_PREFIXES.length; i += 1) {
+    const prefix = API_PREFIXES[i];
+    const body = i === 0 ? bodies.primary : bodies.fallback;
+
+    try {
+      const { response, data } = await performRequest(prefix, normalizedPath, options, body);
+      if (!response.ok) {
+        const message = typeof data === 'string' && data ? data : response.statusText;
+        if (prefix === '/api/v2' && (response.status === 404 || response.status === 501)) {
+          attempts.push(\`\${prefix}\${normalizedPath}: \${response.status}\`);
+          lastError = new Error(message || \`Request failed with status \${response.status}\`);
+          continue;
+        }
+        throw new Error(message || \`Request failed with status \${response.status}\`);
+      }
+      return data;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      attempts.push(\`\${prefix}\${normalizedPath}: \${lastError.message}\`);
+      if (i === API_PREFIXES.length - 1) {
+        break;
+      }
+    }
+  }
+
+  const detail = attempts.length ? attempts.join(' | ') : (lastError ? lastError.message : 'unknown error');
+  throw new Error(\`Request failed for \${path}: \${detail}\`);
+}
+
+function buildAuthHeader() {
+  const apiKey = import.meta.env.VITE_API_KEY;
+  const apiSecret = import.meta.env.VITE_API_SECRET;
+  if (apiKey && apiSecret) {
+    return \`token \${apiKey}:\${apiSecret}\`;
+  }
+  return undefined;
+}
+
+export async function list(doctype, params = {}) {
+  const encodedDoctype = encodeURIComponent(doctype);
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+    if (typeof value === 'object') {
+      query.set(key, JSON.stringify(value));
+    } else {
+      query.set(key, String(value));
+    }
+  });
+  const queryString = query.toString();
+  const path = queryString ? \`/resource/\${encodedDoctype}?\${queryString}\` : \`/resource/\${encodedDoctype}\`;
+  const response = await request(path);
+  return response?.data ?? response;
+}
+
+export async function get(doctype, name) {
+  const response = await request(\`/resource/\${encodeURIComponent(doctype)}/\${encodeURIComponent(name)}\`);
+  return response?.data ?? response;
+}
+
+export async function insert(doctype, doc) {
+  const response = await request(\`/resource/\${encodeURIComponent(doctype)}\`, {
+    method: 'POST',
+    body: { doc },
+    fallbackBody: { data: doc }
+  });
+  return response?.data ?? response;
+}
+
+export async function update(doctype, name, doc) {
+  const response = await request(\`/resource/\${encodeURIComponent(doctype)}/\${encodeURIComponent(name)}\`, {
+    method: 'PUT',
+    body: { doc },
+    fallbackBody: { data: doc }
+  });
+  return response?.data ?? response;
+}
+
+export async function remove(doctype, name) {
+  return request(\`/resource/\${encodeURIComponent(doctype)}/\${encodeURIComponent(name)}\`, { method: 'DELETE' });
+}
+
+export async function call(method, args = {}) {
+  const response = await request(\`/method/\${method}\`, {
+    method: 'POST',
+    body: args
+  });
+  return response?.message ?? response?.data ?? response;
+}
+
+export async function upload(file, { doctype, docname, fieldname }) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('doctype', doctype);
+  form.append('docname', docname);
+  form.append('fieldname', fieldname);
+
+  const response = await request('/method/upload_file', {
+    method: 'POST',
+    body: form
+  });
+  return response?.message ?? response?.data ?? response;
+}
+`;
+
+const FRM_SHIM_SOURCE = String.raw`import { call } from './frappeResource';
+
+type EventName = 'onload' | 'refresh' | 'validate' | 'field_change';
+
+type FrmShimOptions = {
+  onCustomButtonsUpdate?: (buttons: any[]) => void;
+};
+
+type QueryFunction = (context: { doc: Record<string, any>; text: string; filters?: any }) => any;
+
+export class FrmShim {
+  doc: Record<string, any>;
+  doctype: string;
+  private events: Map<EventName, Set<Function>> = new Map();
+  private customButtons: { label: string; handler: () => void }[] = [];
+  private linkQueries: Map<string, QueryFunction> = new Map();
+  private options: FrmShimOptions;
+
+  constructor(doctype: string, doc: Record<string, any>, options: FrmShimOptions = {}) {
+    this.doctype = doctype;
+    this.doc = doc;
+    this.options = options;
+  }
+
+  on(event: EventName, handler: Function) {
+    if (!this.events.has(event)) {
+      this.events.set(event, new Set());
+    }
+    this.events.get(event)!.add(handler);
+  }
+
+  off(event: EventName, handler: Function) {
+    this.events.get(event)?.delete(handler);
+  }
+
+  trigger(event: EventName, context?: any) {
+    const handlers = this.events.get(event);
+    if (!handlers) {
+      return;
+    }
+    for (const handler of handlers) {
+      try {
+        handler(this, context);
+      } catch (error) {
+        console.warn('Client script handler error:', error);
+      }
+    }
+  }
+
+  set_value(field: string, value: any) {
+    this.doc[field] = value;
+    this.trigger('field_change', { field, value });
+  }
+
+  refresh_field(field?: string) {
+    if (!field) {
+      this.trigger('refresh');
+      return;
+    }
+    this.trigger('field_change', { field, value: this.doc[field] });
+  }
+
+  add_child(childTableField: string, row: Record<string, any> = {}) {
+    if (!Array.isArray(this.doc[childTableField])) {
+      this.doc[childTableField] = [];
+    }
+    const newRow = { ...row };
+    this.doc[childTableField].push(newRow);
+    this.refresh_field(childTableField);
+    return newRow;
+  }
+
+  clear_table(childTableField: string) {
+    this.doc[childTableField] = [];
+    this.refresh_field(childTableField);
+  }
+
+  async call(method: string, args: any = {}) {
+    return call(method, { doc: this.doc, ...args });
+  }
+
+  add_custom_button(label: string, handler: () => void) {
+    this.customButtons.push({ label, handler });
+    this.options.onCustomButtonsUpdate?.(this.customButtons.slice());
+  }
+
+  getCustomButtons() {
+    return this.customButtons.slice();
+  }
+
+  registerQuery(field: string, fn: QueryFunction) {
+    this.linkQueries.set(field, fn);
+  }
+
+  async linkSearch(field: string, txt: string, opts: any = {}) {
+    const queryFn = this.linkQueries.get(field);
+    let filters = opts.filters;
+    if (queryFn) {
+      try {
+        filters = queryFn({ doc: this.doc, text: txt, filters });
+      } catch (error) {
+        console.warn('set_query error for field', field, error);
+      }
+    }
+    return call('frappe.desk.search.search_link', {
+      doctype: opts.doctype || this.doctype,
+      txt,
+      searchfield: field,
+      filters
+    });
+  }
+}
+
+function runInSandbox(code: string, context: Record<string, any>) {
+  const sandbox = new Proxy(context, {
+    has: () => true,
+    get(target, key) {
+      if (key in target) {
+        return (target as any)[key];
+      }
+      throw new Error(\`Access to global '\${String(key)}' is not allowed in client scripts.\`);
+    }
+  });
+
+  const executor = new Function('sandbox', \`"use strict"; with (sandbox) { \${code} }\`);
+  return executor(sandbox);
+}
+
+export function createFrmShim(doctype: string, doc: Record<string, any>, options: FrmShimOptions = {}) {
+  return new FrmShim(doctype, doc, options);
+}
+
+export function applyClientScripts(frm: FrmShim, bundle: { events?: Record<string, string>; setQuery?: Record<string, string>; customButtons?: { label: string; code: string }[] }) {
+  const runtime = {
+    frappe: {
+      call: (args: any) => call(args.method, args.args)
+    }
+  };
+
+  if (bundle?.events) {
+    for (const [event, body] of Object.entries(bundle.events)) {
+      frm.on(event as EventName, () => runInSandbox(body, { frm, frappe: runtime.frappe }));
+    }
+  }
+
+  if (bundle?.setQuery) {
+    for (const [field, body] of Object.entries(bundle.setQuery)) {
+      frm.registerQuery(field, (context) => runInSandbox(body, { frm, doc: frm.doc, text: context.text, filters: context.filters }));
+    }
+  }
+
+  if (bundle?.customButtons) {
+    for (const button of bundle.customButtons) {
+      frm.add_custom_button(button.label, () => runInSandbox(button.code, { frm, frappe: runtime.frappe }));
+    }
+  }
+}
+
+export function evaluateCondition(expression: string, frm: FrmShim) {
+  if (!expression) {
+    return true;
+  }
+
+  if (expression.startsWith('eval:')) {
+    const code = expression.replace(/^eval:/, '');
+    try {
+      return runInSandbox(\`return (\${code});\`, { frm, doc: frm.doc });
+    } catch (error) {
+      console.warn('Failed to evaluate expression', expression, error);
+      return true;
+    }
+  }
+
+  const value = frm.doc[expression];
+  return Boolean(value);
+}
+`;
+
+const REALTIME_SOURCE = String.raw`import { onMounted, onUnmounted } from 'vue';
+
+let socketPromise: Promise<any> | null = null;
+
+async function getSocket() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  if (!socketPromise) {
+    socketPromise = import('socket.io-client')
+      .then(({ io }) => {
+        const baseURL = (import.meta.env.VITE_FRAPPE_URL || '').replace(/\/$/, '');
+        return io(baseURL, { withCredentials: true });
+      })
+      .catch((error) => {
+        console.warn('Realtime disabled – socket.io-client not available', error);
+        return null;
+      });
+  }
+  return socketPromise;
+}
+
+export function useRealtime(topics: string[], handler: (payload: any) => void) {
+  onMounted(async () => {
+    const socket = await getSocket();
+    if (!socket) {
+      return;
+    }
+    topics.forEach((topic) => socket.on(topic, handler));
+
+    onUnmounted(() => {
+      topics.forEach((topic) => socket.off(topic, handler));
+    });
+  });
+}
+`;
+
+function generateVueUiFiles(doctype: string, contract: UiContract, preset: UiStylePreset): GeneratedFile[] {
+  const slug = slugifyDoctype(doctype);
+  return [
+    {
+      path: `src/pages/${slug}/List.vue`,
+      contents: buildListVue(doctype, contract, preset)
+    },
+    {
+      path: `src/pages/${slug}/Form.vue`,
+      contents: buildFormVue(doctype, contract, preset)
+    },
+    {
+      path: `src/actions/${slug}.ts`,
+      contents: buildActionsModule(doctype, contract)
+    },
+    {
+      path: 'src/lib/frappeResource.ts',
+      contents: renderAutoRegion('frappeResource', FRAPPE_RESOURCE_SOURCE)
+    },
+    {
+      path: 'src/lib/frm-shim.ts',
+      contents: renderAutoRegion('frmShim', FRM_SHIM_SOURCE)
+    },
+    {
+      path: 'src/lib/realtime.ts',
+      contents: renderAutoRegion('realtime', REALTIME_SOURCE)
+    },
+    {
+      path: `src/router/${slug}.ts`,
+      contents: `import List from '../pages/${slug}/List.vue';
+import Form from '../pages/${slug}/Form.vue';
+
+export default [
+  {
+    path: '${contract.routes.list}',
+    name: '${slug}-list',
+    component: List
+  },
+  {
+    path: '${contract.routes.detail}',
+    name: '${slug}-form',
+    component: Form
+  }
+];
+`
+    }
+  ];
+}
+
+async function syncGeneratedFiles(files: GeneratedFile[], destination?: string) {
+  if (!destination) {
+    return { message: 'No destination provided. Returning generated files.', files };
+  }
+
+  const basePath = path.resolve(destination);
+  for (const file of files) {
+    const targetPath = path.join(basePath, file.path);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, file.contents, 'utf8');
+  }
+
+  return {
+    message: `Wrote ${files.length} files to ${basePath}`,
+    files
+  };
+}
+
 // Cache for doctype metadata
 const doctypeCache = new Map<string, any>();
 
@@ -2680,7 +4479,95 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "ERPNext DocType (e.g., Customer, Item)"
             }
           },
-            required: ["doctype"]
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "get_ui_contract",
+        description: "Generate the UI contract (DSL) for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "DocType to introspect"
+            },
+            style_preset: {
+              type: "string",
+              enum: ["plain", "erp", "compact"],
+              description: "Optional rendering preset hint"
+            }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "generate_vue_ui",
+        description: "Generate Vue 3 + frappe-ui files for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "DocType to generate UI for"
+            },
+            style_preset: {
+              type: "string",
+              enum: ["plain", "erp", "compact"],
+              description: "Optional layout preset"
+            }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "sync_vue_ui",
+        description: "Generate Vue UI files and optionally write them to disk",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "DocType to generate UI for"
+            },
+            style_preset: {
+              type: "string",
+              enum: ["plain", "erp", "compact"],
+              description: "Optional layout preset"
+            },
+            dest_repo: {
+              type: "string",
+              description: "Filesystem path where the generated files should be written"
+            }
+          },
+          required: ["doctype"]
+        }
+      },
+      {
+        name: "list_whitelisted_methods",
+        description: "List whitelisted server methods, optionally filtered by DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "DocType whose server methods should be listed"
+            }
+          }
+        }
+      },
+      {
+        name: "get_workflow",
+        description: "Get workflow definition for a DocType",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doctype: {
+              type: "string",
+              description: "DocType name"
+            }
+          },
+          required: ["doctype"]
         }
       },
       {
@@ -3927,6 +5814,157 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  */
 server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   switch (request.params.name) {
+    case "get_ui_contract": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }],
+          isError: true
+        };
+      }
+
+      const doctype = String(request.params.arguments?.doctype || '').trim();
+      const stylePreset = (request.params.arguments?.style_preset as UiStylePreset | undefined) || 'plain';
+
+      if (!doctype) {
+        throw new McpError(ErrorCode.InvalidParams, "Doctype is required");
+      }
+
+      try {
+        const contract = await buildUiContract(doctype, erpnext, stylePreset);
+        return {
+          content: [{ type: "text", text: JSON.stringify(contract, null, 2) }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Failed to build UI contract for ${doctype}: ${error?.message || 'Unknown error'}` }],
+          isError: true
+        };
+      }
+    }
+
+    case "generate_vue_ui": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }],
+          isError: true
+        };
+      }
+
+      const doctype = String(request.params.arguments?.doctype || '').trim();
+      const stylePreset = (request.params.arguments?.style_preset as UiStylePreset | undefined) || 'plain';
+
+      if (!doctype) {
+        throw new McpError(ErrorCode.InvalidParams, "Doctype is required");
+      }
+
+      try {
+        const contract = await buildUiContract(doctype, erpnext, stylePreset);
+        const files = generateVueUiFiles(doctype, contract, stylePreset);
+        const payload = {
+          contract,
+          files
+        };
+        return {
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Failed to generate Vue UI for ${doctype}: ${error?.message || 'Unknown error'}` }],
+          isError: true
+        };
+      }
+    }
+
+    case "sync_vue_ui": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }],
+          isError: true
+        };
+      }
+
+      const doctype = String(request.params.arguments?.doctype || '').trim();
+      const stylePreset = (request.params.arguments?.style_preset as UiStylePreset | undefined) || 'plain';
+      const destination = request.params.arguments?.dest_repo as string | undefined;
+
+      if (!doctype) {
+        throw new McpError(ErrorCode.InvalidParams, "Doctype is required");
+      }
+
+      try {
+        const contract = await buildUiContract(doctype, erpnext, stylePreset);
+        const files = generateVueUiFiles(doctype, contract, stylePreset);
+        const syncResult = await syncGeneratedFiles(files, destination);
+        const payload = {
+          contract,
+          message: syncResult.message,
+          files: syncResult.files
+        };
+        return {
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Failed to sync Vue UI for ${doctype}: ${error?.message || 'Unknown error'}` }],
+          isError: true
+        };
+      }
+    }
+
+    case "list_whitelisted_methods": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }],
+          isError: true
+        };
+      }
+
+      const doctypeArg = request.params.arguments?.doctype as string | undefined;
+
+      try {
+        const methods = await erpnext.listWhitelistedMethods(doctypeArg);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ doctype: doctypeArg, methods }, null, 2) }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Failed to list whitelisted methods: ${error?.message || 'Unknown error'}` }],
+          isError: true
+        };
+      }
+    }
+
+    case "get_workflow": {
+      if (!erpnext.isAuthenticated()) {
+        return {
+          content: [{ type: "text", text: "Not authenticated with ERPNext. Please configure API key authentication." }],
+          isError: true
+        };
+      }
+
+      const doctype = String(request.params.arguments?.doctype || '').trim();
+      if (!doctype) {
+        throw new McpError(ErrorCode.InvalidParams, "Doctype is required");
+      }
+
+      try {
+        const workflow = await erpnext.getWorkflowForDoctype(doctype);
+        if (!workflow) {
+          return {
+            content: [{ type: "text", text: `No workflow configured for ${doctype}` }]
+          };
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify(workflow, null, 2) }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Failed to fetch workflow for ${doctype}: ${error?.message || 'Unknown error'}` }],
+          isError: true
+        };
+      }
+    }
+
     case "get_documents": {
       if (!erpnext.isAuthenticated()) {
         return {
