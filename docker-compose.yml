@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  erpnext-mcp-http:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - ERPNEXT_URL=${ERPNEXT_URL:-http://127.0.0.1:8000}
+      - ERPNEXT_API_KEY=${ERPNEXT_API_KEY:-a6f82e11cf4a760}
+      - ERPNEXT_API_SECRET=${ERPNEXT_API_SECRET:-ef0b02ee4d3b056}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - erpnext-network
+
+networks:
+  erpnext-network:
+    driver: bridge

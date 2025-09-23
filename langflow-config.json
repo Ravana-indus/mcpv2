@@ -1,0 +1,189 @@
+{
+  "name": "ERPNext MCP Tools",
+  "description": "ERPNext integration via MCP HTTP Server",
+  "tools": [
+    {
+      "name": "get_document",
+      "description": "Get a document from ERPNext by doctype and name",
+      "url": "http://localhost:3000/tools/call",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "ERPNEXT_URL": "http://your-erpnext-instance.com",
+        "ERPNEXT_API_KEY": "your-api-key",
+        "ERPNEXT_API_SECRET": "your-api-secret"
+      },
+      "body_template": {
+        "name": "get_document",
+        "arguments": {
+          "doctype": "{{doctype}}",
+          "name": "{{name}}"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doctype": {
+            "type": "string",
+            "description": "The document type (e.g., Customer, Sales Order)"
+          },
+          "name": {
+            "type": "string",
+            "description": "The document name or ID"
+          }
+        },
+        "required": ["doctype", "name"]
+      }
+    },
+    {
+      "name": "list_documents",
+      "description": "List documents from ERPNext by doctype with optional filters",
+      "url": "http://localhost:3000/tools/call",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "ERPNEXT_URL": "http://your-erpnext-instance.com",
+        "ERPNEXT_API_KEY": "your-api-key",
+        "ERPNEXT_API_SECRET": "your-api-secret"
+      },
+      "body_template": {
+        "name": "get_doc_list",
+        "arguments": {
+          "doctype": "{{doctype}}",
+          "filters": "{{filters}}",
+          "fields": "{{fields}}",
+          "limit": "{{limit}}"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doctype": {
+            "type": "string",
+            "description": "The document type to list"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Optional filters to apply"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional fields to include"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of documents to return"
+          }
+        },
+        "required": ["doctype"]
+      }
+    },
+    {
+      "name": "create_document",
+      "description": "Create a new document in ERPNext",
+      "url": "http://localhost:3000/tools/call",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "ERPNEXT_URL": "http://your-erpnext-instance.com",
+        "ERPNEXT_API_KEY": "your-api-key",
+        "ERPNEXT_API_SECRET": "your-api-secret"
+      },
+      "body_template": {
+        "name": "create_document",
+        "arguments": {
+          "doctype": "{{doctype}}",
+          "doc": "{{doc}}"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doctype": {
+            "type": "string",
+            "description": "The document type to create"
+          },
+          "doc": {
+            "type": "object",
+            "description": "The document data"
+          }
+        },
+        "required": ["doctype", "doc"]
+      }
+    },
+    {
+      "name": "update_document",
+      "description": "Update an existing document in ERPNext",
+      "url": "http://localhost:3000/tools/call",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "ERPNEXT_URL": "http://your-erpnext-instance.com",
+        "ERPNEXT_API_KEY": "your-api-key",
+        "ERPNEXT_API_SECRET": "your-api-secret"
+      },
+      "body_template": {
+        "name": "update_document",
+        "arguments": {
+          "doctype": "{{doctype}}",
+          "name": "{{name}}",
+          "doc": "{{doc}}"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doctype": {
+            "type": "string",
+            "description": "The document type"
+          },
+          "name": {
+            "type": "string",
+            "description": "The document name or ID"
+          },
+          "doc": {
+            "type": "object",
+            "description": "The updated document data"
+          }
+        },
+        "required": ["doctype", "name", "doc"]
+      }
+    },
+    {
+      "name": "run_report",
+      "description": "Run a report in ERPNext",
+      "url": "http://localhost:3000/tools/call",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "ERPNEXT_URL": "http://your-erpnext-instance.com",
+        "ERPNEXT_API_KEY": "your-api-key",
+        "ERPNEXT_API_SECRET": "your-api-secret"
+      },
+      "body_template": {
+        "name": "run_report",
+        "arguments": {
+          "reportName": "{{reportName}}",
+          "filters": "{{filters}}"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reportName": {
+            "type": "string",
+            "description": "The name of the report to run"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Optional filters for the report"
+          }
+        },
+        "required": ["reportName"]
+      }
+    }
+  ]
+}
