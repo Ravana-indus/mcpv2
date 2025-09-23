@@ -157,16 +157,26 @@ function sendMCPRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
   });
 }
 
+// Generate a unique request id if the client does not provide one
+let requestCounter = 0;
+function generateRequestId(): string {
+  requestCounter += 1;
+  return `${Date.now()}-${process.pid}-${requestCounter}`;
+}
+
 app.post('/mcp', async (req: Request, res: Response) => {
-  const { id, method, params } = req.body as {
-    id: string | number;
+  const { method, params } = req.body as {
+    id?: string | number | null;
     method: string;
     params?: any;
   };
 
+  const incomingId = (req.body as { id?: string | number | null }).id;
+  const ensuredId = incomingId === undefined || incomingId === null ? generateRequestId() : incomingId;
+
   const jsonrpcReq: JSONRPCRequest = {
     jsonrpc: '2.0',
-    id,
+    id: ensuredId,
     method,
     params,
   };
@@ -177,7 +187,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
   } catch (e: any) {
     res
       .status(500)
-      .json({ jsonrpc: '2.0', id, error: { code: -32000, message: e.message } });
+      .json({ jsonrpc: '2.0', id: ensuredId, error: { code: -32000, message: e.message } });
   }
 });
 
