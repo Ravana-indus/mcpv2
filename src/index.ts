@@ -84,19 +84,29 @@ class ERPNextClient {
   private retryDelay: number = 1000; // milliseconds
   private doctypeCache: Map<string, { data: any; timestamp: number }> = new Map();
   private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes cache timeout
+  private httpsFallbackAttempted: boolean = false;
 
   constructor() {
     // Get ERPNext configuration from environment variables
-    this.baseUrl = process.env.ERPNEXT_URL || '';
-    
+    const configuredUrl = (process.env.ERPNEXT_URL || '').trim();
+    this.baseUrl = configuredUrl;
+
     // Validate configuration
     if (!this.baseUrl) {
       throw new Error("ERPNEXT_URL environment variable is required");
     }
-    
+
+    // Ensure the URL includes a protocol (default to HTTPS for safety)
+    if (!/^https?:\/\//i.test(this.baseUrl)) {
+      console.warn(
+        `ERPNEXT_URL "${this.baseUrl}" does not include a protocol. Assuming HTTPS.`
+      );
+      this.baseUrl = `https://${this.baseUrl}`;
+    }
+
     // Remove trailing slash if present
     this.baseUrl = this.baseUrl.replace(/\/$/, '');
-    
+
     // Initialize axios instance
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -112,7 +122,19 @@ class ERPNextClient {
       (response) => response,
       async (error) => {
         const config = error.config;
-        
+
+        if (config && this.shouldAttemptHttpsFallback(error, config)) {
+          if (this.activateHttpsFallback()) {
+            (config as any).__httpsFallbackAttempted = true;
+            config.baseURL = this.baseUrl;
+            config.retryCount = 0;
+            console.warn(
+              `Retrying ERPNext request with HTTPS: ${config.url || 'unknown endpoint'}`
+            );
+            return this.axiosInstance(config);
+          }
+        }
+
         // Initialize retry count
         if (!config || !config.retryCount) {
           config.retryCount = 0;
@@ -145,12 +167,74 @@ class ERPNextClient {
     // Configure authentication if credentials provided
     const apiKey = process.env.ERPNEXT_API_KEY;
     const apiSecret = process.env.ERPNEXT_API_SECRET;
-    
+
     if (apiKey && apiSecret) {
-      this.axiosInstance.defaults.headers.common['Authorization'] = 
+      this.axiosInstance.defaults.headers.common['Authorization'] =
         `token ${apiKey}:${apiSecret}`;
       this.authenticated = true;
     }
+  }
+
+  private shouldAttemptHttpsFallback(error: any, config: any): boolean {
+    if (this.httpsFallbackAttempted) {
+      return false;
+    }
+
+    if (!this.baseUrl.toLowerCase().startsWith('http://')) {
+      return false;
+    }
+
+    if (config?.__httpsFallbackAttempted) {
+      return false;
+    }
+
+    let hostname: string | null = null;
+    try {
+      const parsed = new URL(this.baseUrl);
+      hostname = parsed.hostname;
+    } catch {
+      return false;
+    }
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return false;
+    }
+
+    const errorCode = error?.code;
+    const message = String(error?.message || '').toLowerCase();
+    const networkErrors = new Set([
+      'ECONNRESET',
+      'ECONNREFUSED',
+      'EHOSTUNREACH',
+      'ENOTFOUND',
+      'EPROTO',
+    ]);
+
+    if (errorCode && networkErrors.has(String(errorCode).toUpperCase())) {
+      return true;
+    }
+
+    if (message.includes('socket hang up') || message.includes('econnreset')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private activateHttpsFallback(): boolean {
+    const httpsUrl = this.baseUrl.replace(/^http:\/\//i, 'https://');
+
+    if (httpsUrl === this.baseUrl) {
+      return false;
+    }
+
+    console.warn(`Switching ERPNext base URL to HTTPS fallback: ${httpsUrl}`);
+
+    this.baseUrl = httpsUrl;
+    this.httpsFallbackAttempted = true;
+    this.axiosInstance.defaults.baseURL = this.baseUrl;
+
+    return true;
   }
 
   isAuthenticated(): boolean {
