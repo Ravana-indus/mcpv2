@@ -1,6 +1,9 @@
 // src/http-server.ts
 import express, { Request, Response } from 'express';
 import { spawn } from 'child_process';
+import path from 'node:path';
+import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -30,11 +33,19 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Use the correct Node.js path
-const nodePath = '/home/frappeuser/.nvm/versions/node/v18.20.8/bin/node';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const nodeExecutable = (process.env.MCP_NODE_PATH && process.env.MCP_NODE_PATH.trim()) || process.execPath;
+const mcpEntryPointEnv = process.env.MCP_ENTRY_PATH && process.env.MCP_ENTRY_PATH.trim();
+const mcpEntryPoint = mcpEntryPointEnv
+  ? path.isAbsolute(mcpEntryPointEnv)
+    ? mcpEntryPointEnv
+    : path.resolve(__dirname, mcpEntryPointEnv)
+  : path.resolve(__dirname, 'index.js');
 
 // Spawn your MCP CLI with correct environment
-const mcp = spawn(nodePath, ['build/index.js'], {
+const mcp = spawn(nodeExecutable, [mcpEntryPoint], {
   env: {
     ...process.env,
     ERPNEXT_URL: process.env.ERPNEXT_URL || 'http://127.0.0.1:8000',
@@ -54,34 +65,86 @@ mcp.on('exit', (code) => {
   console.log('MCP process exited with code:', code);
 });
 
+// Track pending MCP requests so we can match responses by ID
+const pendingRequests = new Map<
+  string | number,
+  {
+    resolve: (value: JSONRPCSuccessResponse) => void;
+    reject: (error: Error) => void;
+  }
+>();
+
+// Ensure stdout is decoded as UTF-8 strings
+if (mcp.stdout) {
+  mcp.stdout.setEncoding('utf8');
+}
+
+const rl = readline.createInterface({
+  input: mcp.stdout!,
+  crlfDelay: Infinity,
+});
+
+rl.on('line', (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  let parsed: JSONRPCResponse;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    console.error('Invalid JSON from MCP:', trimmed, error);
+    return;
+  }
+
+  const responseId = (parsed as JSONRPCSuccessResponse | JSONRPCErrorResponse).id;
+  if (responseId === undefined || responseId === null) {
+    console.warn('Received MCP message without id:', parsed);
+    return;
+  }
+
+  const pending = pendingRequests.get(responseId);
+  if (!pending) {
+    console.warn('Received MCP response with no matching request:', parsed);
+    return;
+  }
+
+  pendingRequests.delete(responseId);
+
+  if ((parsed as JSONRPCErrorResponse).error) {
+    const error = (parsed as JSONRPCErrorResponse).error!;
+    pending.reject(new Error(error.message || 'Unknown MCP error'));
+    return;
+  }
+
+  pending.resolve(parsed as JSONRPCSuccessResponse);
+});
+
 // Helper: send one JSON-RPC request and wait for one response
 function sendMCPRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
   return new Promise((resolve, reject) => {
-    // write the request
-    mcp.stdin.write(JSON.stringify(request) + '\n');
+    if (request.id === undefined || request.id === null) {
+      reject(new Error('JSON-RPC request must include an id'));
+      return;
+    }
 
-    // once-only listener
-    const onData = (chunk: Buffer) => {
-      let parsed: JSONRPCResponse;
-      try {
-        parsed = JSON.parse(chunk.toString());
-      } catch (e) {
-        mcp.stdout.off('data', onData);
-        return reject(new Error('Invalid JSON from MCP: ' + e));
-      }
-      // detach listener immediately
-      mcp.stdout.off('data', onData);
+    if (pendingRequests.has(request.id)) {
+      reject(new Error(`Duplicate JSON-RPC request id: ${request.id}`));
+      return;
+    }
 
-      // error or success?
-      if ((parsed as JSONRPCErrorResponse).error) {
-        const err = (parsed as JSONRPCErrorResponse).error!;
-        return reject(new Error(err.message));
-      } else {
-        return resolve(parsed as JSONRPCSuccessResponse);
-      }
-    };
+    pendingRequests.set(request.id, {
+      resolve: resolve as (value: JSONRPCSuccessResponse) => void,
+      reject,
+    });
 
-    mcp.stdout.on('data', onData);
+    try {
+      mcp.stdin.write(JSON.stringify(request) + '\n');
+    } catch (error: any) {
+      pendingRequests.delete(request.id);
+      reject(new Error(`Failed to write to MCP process: ${error?.message || error}`));
+    }
   });
 }
 
