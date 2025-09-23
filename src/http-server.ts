@@ -182,7 +182,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
 });
 
 // Get the port from environment or default to 3000
-const port = parseInt(process.env.PORT || '3000', 10);
+const port = parseInt(process.env.PORT || '3010', 10);
 
 // Bind to all interfaces (0.0.0.0) for external access
 app.listen(port, '0.0.0.0', () => {
