@@ -1,175 +1,142 @@
-// src/http-server.ts
-import express, { Request, Response } from 'express';
-import { spawn } from 'child_process';
-import readline from 'node:readline';
-import { fileURLToPath } from 'node:url';
-import {
-  JSONRPCRequest,
-  JSONRPCResponse,
-  JSONRPCSuccessResponse,
-  JSONRPCErrorResponse,
-} from 'json-rpc-2.0';
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { URL, fileURLToPath } from "node:url";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { server as mcpServer } from "./index.js";
 
-const app = express();
+const transports = new Map<string, SSEServerTransport>();
 
-// Add CORS middleware for external access
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
-
-app.use(express.json());
-
-// Add health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Resolve the Node.js binary and server entry dynamically
-const nodePath = process.env.NODE_BINARY || process.execPath;
-const serverEntry = fileURLToPath(new URL('./index.js', import.meta.url));
-
-// Spawn your MCP CLI with correct environment
-const mcp = spawn(nodePath, [serverEntry], {
-  env: {
-    ...process.env,
-    ERPNEXT_URL: process.env.ERPNEXT_URL || 'http://127.0.0.1:8000',
-    ERPNEXT_API_KEY: process.env.ERPNEXT_API_KEY || 'a6f82e11cf4a760',
-    ERPNEXT_API_SECRET: process.env.ERPNEXT_API_SECRET || 'ef0b02ee4d3b056',
-    PORT: process.env.PORT || '3000'
-  },
-  stdio: ['pipe', 'pipe', 'inherit'],
-});
-
-// Handle MCP process errors
-mcp.on('error', (error) => {
-  console.error('MCP process error:', error);
-});
-
-mcp.on('exit', (code) => {
-  console.log('MCP process exited with code:', code);
-});
-
-// Track pending MCP requests so we can match responses by ID
-const pendingRequests = new Map<
-  string | number,
-  {
-    resolve: (value: JSONRPCSuccessResponse) => void;
-    reject: (error: Error) => void;
-  }
->();
-
-// Ensure stdout is decoded as UTF-8 strings
-if (mcp.stdout) {
-  mcp.stdout.setEncoding('utf8');
+function setCorsHeaders(res: ServerResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
 }
 
-const rl = readline.createInterface({
-  input: mcp.stdout!,
-  crlfDelay: Infinity,
-});
+function handleOptions(res: ServerResponse) {
+  setCorsHeaders(res);
+  res.writeHead(204).end();
+}
 
-rl.on('line', (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return;
-  }
+function handleHealth(res: ServerResponse) {
+  setCorsHeaders(res);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }));
+}
 
-  let parsed: JSONRPCResponse;
+async function handleSseConnection(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  setCorsHeaders(res);
+
+  const transport = new SSEServerTransport("/message", res);
+  transports.set(transport.sessionId, transport);
+
+  transport.onclose = () => {
+    transports.delete(transport.sessionId);
+  };
+
+  transport.onerror = (error) => {
+    console.error("SSE transport error:", error);
+  };
+
   try {
-    parsed = JSON.parse(trimmed);
+    if (mcpServer.transport) {
+      await mcpServer.close();
+    }
+    await mcpServer.connect(transport);
   } catch (error) {
-    console.error('Invalid JSON from MCP:', trimmed, error);
+    console.error("Failed to start SSE transport:", error);
+    transports.delete(transport.sessionId);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Failed to start SSE transport" }));
+    } else {
+      res.end();
+    }
+  }
+}
+
+async function handleMessage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  setCorsHeaders(res);
+
+  const sessionId = url.searchParams.get("sessionId");
+  if (!sessionId) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Missing sessionId" }));
     return;
   }
 
-  const responseId = (parsed as JSONRPCSuccessResponse | JSONRPCErrorResponse).id;
-  if (responseId === undefined || responseId === null) {
-    console.warn('Received MCP message without id:', parsed);
+  const transport = transports.get(sessionId);
+  if (!transport) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Unknown session" }));
     return;
   }
 
-  const pending = pendingRequests.get(responseId);
-  if (!pending) {
-    console.warn('Received MCP response with no matching request:', parsed);
+  try {
+    await transport.handlePostMessage(req, res);
+  } catch (error) {
+    console.error("Failed to forward message to MCP server:", error);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Failed to forward message" }));
+    }
+  }
+}
+
+const httpServer = createServer(async (req, res) => {
+  if (!req.url) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid request" }));
     return;
   }
 
-  pendingRequests.delete(responseId);
+  const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
 
-  if ((parsed as JSONRPCErrorResponse).error) {
-    const error = (parsed as JSONRPCErrorResponse).error!;
-    pending.reject(new Error(error.message || 'Unknown MCP error'));
-    return;
+  switch (req.method) {
+    case "OPTIONS":
+      handleOptions(res);
+      return;
+    case "GET":
+      if (url.pathname === "/health") {
+        handleHealth(res);
+        return;
+      }
+      if (url.pathname === "/sse") {
+        await handleSseConnection(req, res);
+        return;
+      }
+      break;
+    case "POST":
+      if (url.pathname === "/message") {
+        await handleMessage(req, res, url);
+        return;
+      }
+      break;
   }
 
-  pending.resolve(parsed as JSONRPCSuccessResponse);
+  setCorsHeaders(res);
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Not found" }));
 });
 
-// Helper: send one JSON-RPC request and wait for one response
-function sendMCPRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
-  return new Promise((resolve, reject) => {
-    if (request.id === undefined || request.id === null) {
-      reject(new Error('JSON-RPC request must include an id'));
-      return;
-    }
+export { httpServer };
 
-    if (pendingRequests.has(request.id)) {
-      reject(new Error(`Duplicate JSON-RPC request id: ${request.id}`));
-      return;
-    }
-
-    pendingRequests.set(request.id, {
-      resolve: resolve as (value: JSONRPCSuccessResponse) => void,
-      reject,
-    });
-
-    try {
-      mcp.stdin.write(JSON.stringify(request) + '\n');
-    } catch (error: any) {
-      pendingRequests.delete(request.id);
-      reject(new Error(`Failed to write to MCP process: ${error?.message || error}`));
-    }
+export function startHttpServer() {
+  const port = Number(process.env.PORT ?? 3000);
+  httpServer.listen(port, "0.0.0.0", () => {
+    console.log(`Streaming MCP HTTP server listening on port ${port}`);
+    console.log(`SSE endpoint: /sse`);
   });
 }
 
-app.post('/mcp', async (req: Request, res: Response) => {
-  const { id, method, params } = req.body as {
-    id: string | number;
-    method: string;
-    params?: any;
-  };
-
-  const jsonrpcReq: JSONRPCRequest = {
-    jsonrpc: '2.0',
-    id,
-    method,
-    params,
-  };
-
-  try {
-    const response = await sendMCPRequest(jsonrpcReq);
-    res.json(response);
-  } catch (e: any) {
-    res
-      .status(500)
-      .json({ jsonrpc: '2.0', id, error: { code: -32000, message: e.message } });
-  }
-});
-
-// Get the port from environment or default to 3000
-const port = parseInt(process.env.PORT || '3000', 10);
-
-// Bind to all interfaces (0.0.0.0) for external access
-app.listen(port, '0.0.0.0', () => {
-  console.log(`MCP→HTTP gateway running on port ${port}`);
-  console.log(`Access via: http://map.ravanos.com/mcp`);
-  console.log(`Health check: http://map.ravanos.com/health`);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startHttpServer();
+}
