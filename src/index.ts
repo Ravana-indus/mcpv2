@@ -63,6 +63,7 @@ interface ErrorDetails {
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { fileURLToPath } from "node:url";
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -6511,7 +6512,11 @@ async function main() {
   console.error('ERPNext MCP server running on stdio');
 }
 
-main().catch((error) => {
-  console.error("Server error:", error);
-  process.exit(1);
-});
+export { server };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error("Server error:", error);
+    process.exit(1);
+  });
+}
