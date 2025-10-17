@@ -11,7 +11,7 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');fs.chmodSync('build/index.js','755');try{fs.copyFileSync('build/http-server.js','build/http-server.ts');}catch(error){if(error.code!=='ENOENT')throw error;}\"",
+    "build": "tsc && node -e \"const fs=require('fs');const path=require('path');const tsPath=path.join('build','http-server.ts');const jsPath=path.join('build','http-server.js');try{fs.chmodSync(path.join('build','index.js'),'755');}catch(error){if(error.code!=='ENOENT')throw error;}try{fs.rmSync(tsPath,{force:true});}catch(error){if(error.code!=='ENOENT')throw error;}try{fs.symlinkSync(path.basename(jsPath),tsPath);}catch(error){if(error.code==='ENOENT'&&error.path===jsPath){}else if(error.code!=='EEXIST'){throw error;}}\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
