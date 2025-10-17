@@ -11,19 +11,16 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node -e \"const fs=require('fs');fs.chmodSync('build/index.js','755');try{fs.copyFileSync('build/http-server.js','build/http-server.ts');}catch(error){if(error.code!=='ENOENT')throw error;}\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
-    "axios": "^1.8.4",
-    "express": "^5.1.0",
-    "json-rpc-2.0": "^1.7.0"
+    "axios": "^1.8.4"
   },
   "devDependencies": {
-    "@types/express": "^5.0.3",
     "@types/node": "^20.19.1",
     "typescript": "^5.3.3"
   }
